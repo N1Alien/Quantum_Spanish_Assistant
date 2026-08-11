@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  quantum_postgres_db:
+    image: postgres:15-alpine
+    container_name: postgres_quantum_container
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: quantum_spanish_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_quantum_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_quantum_data:
