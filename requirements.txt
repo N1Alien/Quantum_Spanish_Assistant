@@ -9,7 +9,10 @@ speechrecognition==3.10.4
 gTTS==2.5.3
 requests==2.32.2
 beautifulsoup4==4.12.3
-pennylane==0.38.0
+
+# Stabilny zestaw kwantowy rozwiązujący błąd NumpyMimic
+pennylane>=0.39.0
+autoray==0.6.12
 
 # Dynamiczne dopasowanie wersji ekosystemu LangChain
 langchain
