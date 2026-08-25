@@ -1,3 +1,5 @@
+--extra-index-url https://pytorch.org
+
 fastapi==0.115.0
 uvicorn==0.30.6
 streamlit==1.38.0
@@ -14,8 +16,8 @@ beautifulsoup4==4.12.3
 pennylane>=0.39.0
 autoray==0.6.12
 
-# Specjalna lekka instalacja PyTorch CPU bez zbędnych sterowników graficznych
-torch==2.5.1+cpu --extra-index-url https://pytorch.org
+# Standardowy wpis – dzięki index-url na górze, pobierze się wersja lekka (CPU)
+torch==2.5.1
 
 # Ekosystem LangChain
 langchain
