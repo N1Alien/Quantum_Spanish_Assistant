@@ -3,8 +3,9 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
 
+    sys.path.insert(0, BASE_DIR)
+import threading
 from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database import engine, Base
@@ -24,10 +25,15 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.on_event("startup")
 def startup_event():
-    # 2. Bezpieczna inicjalizacja i pobranie danych www po podniesieniu aplikacji
+    # 1. Natychmiast inicjalizujemy podstawową konfigurację bazy wektorowej
     vector_service.initialize_vector_db()
+    
+    # 2. Uruchamiamy pobieranie wiedzy www w osobnym wątku tła.
+    # Dzięki temu serwer uvicorn wystartuje natychmiast, a port otworzy się bez czekania na sieć!
     if settings.ENABLE_WEB_INGESTION:
-        vector_service.auto_fetch_web_knowledge()
+        thread = threading.Thread(target=vector_service.auto_fetch_web_knowledge)
+        thread.daemon = True  # Wątek zamknie się automatycznie przy wyłączeniu aplikacji
+        thread.start()
 
 @app.get("/", tags=["Health Check"])
 def read_root():
