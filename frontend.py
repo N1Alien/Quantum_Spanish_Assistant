@@ -6,9 +6,10 @@ import io
 import os
 import re
 
-# API backend URL used by the frontend to send requests
-# Port 8000 is occupied by another system process, so the backend runs on 8001.
-FASTAPI_URL = "http://127.0.0.1:8001/api/v1/quantum-chat"
+# API backend URL used by the frontend to send requests.
+# On local development it defaults to the local FastAPI instance.
+# In cloud deployment Render sets this via environment variables.
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001/api/v1/quantum-chat")
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
