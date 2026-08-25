@@ -20,7 +20,7 @@ langchain-ollama>=0.2.0
 langchain-groq>=0.2.0
 langchain-postgres>=0.0.7
 
-# Odchudzona wersja procesora dla PyTorch (ochrona limitu 512MB RAM na Renderze)
---index-url https://pytorch.org
+# Dodatkowe źródło dla odchudzonego PyTorcha CPU (ochrona limitu 512MB RAM)
+--extra-index-url https://pytorch.org
 torch==2.5.1
 sentence-transformers==3.3.1
