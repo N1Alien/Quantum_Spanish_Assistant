@@ -4,4 +4,5 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 EXPOSE 10000
-CMD ["sh", "-c", "streamlit run frontend.py --server.port=${PORT:-10000} --server.address=0.0.0.0 --server.headless=true"]
+# Dodana flaga wyłączająca zbieranie statystyk (gatherUsageStats)
+CMD ["sh", "-c", "streamlit run frontend.py --server.port=${PORT:-10000} --server.address=0.0.0.0 --server.headless=true --browser.gatherUsageStats=false"]
