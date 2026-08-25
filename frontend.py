@@ -174,7 +174,7 @@ if st.button("🔄 Reset conversation view and clear memory"):
     st.session_state.clear()
     st.rerun()
 
-audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
+audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input", sample_rate=16000)
 
 if audio_file is not None:
     audio_bytes = audio_file.read()
