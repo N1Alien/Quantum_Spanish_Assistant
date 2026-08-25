@@ -92,8 +92,9 @@ class VectorService:
                 return "\n---\n".join([doc.page_content for doc in docs])
 
             if self.chroma_client is not None and os.path.exists(self.persist_directory):
-                from "../../" import Chroma
+                from langchain_community.vectorstores import Chroma
                 vector_db = Chroma(
+
                     persist_directory=self.persist_directory,
                     embedding_function=self.embeddings,
                 )
