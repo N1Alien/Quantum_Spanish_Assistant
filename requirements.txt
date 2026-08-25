@@ -10,11 +10,14 @@ gTTS==2.5.3
 requests==2.32.2
 beautifulsoup4==4.12.3
 
-# Stabilny zestaw kwantowy
+# Zestaw kwantowy
 pennylane>=0.39.0
 autoray==0.6.12
 
-# Dynamiczne dopasowanie wersji ekosystemu LangChain
+# Specjalna lekka instalacja PyTorch CPU bez zbędnych sterowników graficznych
+torch==2.5.1+cpu --extra-index-url https://pytorch.org
+
+# Ekosystem LangChain
 langchain
 langchain-community
 langchain-core
