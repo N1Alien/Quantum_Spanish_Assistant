@@ -7,7 +7,7 @@ class VectorService:
         self.persist_directory = settings.CHROMA_PERSIST_DIRECTORY
         self.urls_to_scrape = [
             "https://wikipedia.org",
-            "https://es.wikipedia.org/wiki/Idioma_espa%C3%B1ol",
+            "https://wikipedia.org",
         ]
         self.vector_provider = (settings.VECTOR_DB_PROVIDER or "chroma").lower()
         self.embeddings = None
@@ -15,17 +15,21 @@ class VectorService:
         self.chroma_client = None
 
     def initialize_vector_db(self):
-        """Inicjalizacja bazy wywoływana bezpiecznie na startupie aplikacji."""
+        """Inicjalizacja bazy bez obciążania pamięci RAM (Serverless Embeddings)."""
         if self.pg_vector is not None or self.chroma_client is not None:
             return
 
         if self.vector_provider == "pgvector":
             try:
                 from langchain_postgres import PGVector
-                from langchain_community.embeddings import HuggingFaceEmbeddings
+                from langchain_groq import GroqEmbeddings
 
-                # Używamy najlżejszego modelu celem ochrony limitu 512MB RAM na Renderze
-                self.embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+                # Używamy zdalnego API Groq do generowania wektorów - zużycie RAM = 0 MB!
+                self.embeddings = GroqEmbeddings(
+                    model="mixedbread-ai/mxbai-embed-large",
+                    groq_api_key=settings.GROQ_API_KEY
+                )
+                
                 self.pg_vector = PGVector(
                     connection=settings.PGVECTOR_CONNECTION_STRING,
                     collection_name=settings.PGVECTOR_COLLECTION,
@@ -88,7 +92,7 @@ class VectorService:
                 return "\n---\n".join([doc.page_content for doc in docs])
 
             if self.chroma_client is not None and os.path.exists(self.persist_directory):
-                from langchain_community.vectorstores import Chroma
+                from "../../" import Chroma
                 vector_db = Chroma(
                     persist_directory=self.persist_directory,
                     embedding_function=self.embeddings,

@@ -10,7 +10,7 @@ gTTS==2.5.3
 requests==2.32.2
 beautifulsoup4==4.12.3
 
-# Stabilny zestaw kwantowy rozwiązujący błąd NumpyMimic
+# Stabilny zestaw kwantowy
 pennylane>=0.39.0
 autoray==0.6.12
 
@@ -22,8 +22,3 @@ langchain-text-splitters
 langchain-ollama
 langchain-groq
 langchain-postgres
-
-# Indeks i lekki PyTorch dedykowany pod architekturę CPU
---extra-index-url https://pytorch.org
-torch==2.5.1
-sentence-transformers==3.3.1
