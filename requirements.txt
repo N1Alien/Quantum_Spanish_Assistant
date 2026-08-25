@@ -2,7 +2,6 @@
 
 fastapi==0.115.0
 uvicorn==0.30.6
-streamlit==1.38.0
 python-dotenv==1.0.1
 pydantic-settings==2.3.4
 sqlalchemy==2.0.35
@@ -12,11 +11,12 @@ gTTS==2.5.3
 requests==2.32.2
 beautifulsoup4==4.12.3
 
+# Najnowsza bezpieczna wersja Streamlit obsługująca st.audio_input
+streamlit>=1.40.0
+
 # Zestaw kwantowy
 pennylane>=0.39.0
 autoray==0.6.12
-
-# Standardowy wpis – dzięki index-url na górze, pobierze się wersja lekka (CPU)
 torch==2.5.1
 
 # Ekosystem LangChain
