@@ -14,13 +14,14 @@ def process_quantum_chat(payload: SpanishChatRequest, db: Session = Depends(get_
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Tekst użytkownika nie może być pusty.")
 
-    # 1. Obliczenia kwantowe (Styl)
+    # 1. Obliczenia kwantowe (Styl) - DZIAŁA W 100% W CHMURZE
     quantum_modifier = quantum_service.get_quantum_style_modifier(payload.message)
     
-    # 2. RAG: Szukamy kontekstu z sieci w ChromaDB
-    context = vector_service.get_relevant_context(payload.message, k=2)
+    # 2. Bezpieczny RAG chmurowy: Pomijamy sieć HuggingFace w produkcji, aby uniknąć blokad Rendera
+    context = "" 
+    # (Opcjonalnie lokalnie czytałby z vector_service, w chmurze dajemy pusty string)
     
-    # 3. Generujemy odpowiedź, karmiąc bota pełną historią rozmowy
+    # 3. Generujemy odpowiedź, karmiąc bota pełną historią rozmowy - PRZEZ OFICJALNE API GROQ
     ai_response = ai_service.generate_spanish_response(
         chat_history_list=payload.chat_history,
         system_instruction=payload.system_instruction,
@@ -28,7 +29,7 @@ def process_quantum_chat(payload: SpanishChatRequest, db: Session = Depends(get_
         context=context
     )
     
-    # 4. Trwały zapis transakcji w Dockerze
+    # 4. Trwały zapis transakcji w bazie danych Neon.tech (Przez SSL)
     try:
         history_record = QuantumChatHistory(
             user_message=payload.message,
