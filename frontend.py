@@ -5,28 +5,22 @@ import io
 import os
 import re
 
-# Adres URL Twojego backendu FastAPI
-FASTAPI_URL = os.getenv("FASTAPI_URL", "https://onrender.com")
+# Prawidłowe parsowanie bazowego adresu URL z Render.com
+BASE_URL = os.getenv("FASTAPI_URL", "http://127.0.0")
 
-# Generujemy automatycznie adres dla drugiego endpointu (transkrypcji)
-TRANSCRIBE_URL = FASTAPI_URL.replace("/quantum-chat", "/transcribe")
+# Rozdzielamy adresy na dwa poprawne punkty końcowe API
+if "/api/v1/quantum-chat" in BASE_URL:
+    FASTAPI_URL = BASE_URL
+    TRANSCRIBE_URL = BASE_URL.replace("/quantum-chat", "/transcribe")
+else:
+    # Jeśli podano samą domenę w konfiguracji Rendera
+    BASE_URL = BASE_URL.rstrip("/")
+    FASTAPI_URL = f"{BASE_URL}/api/v1/quantum-chat"
+    TRANSCRIBE_URL = f"{BASE_URL}/api/v1/transcribe"
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
 st.write("Speak into the microphone. Audio processing is handled securely via FastAPI & Groq SDK.")
-
-st.sidebar.caption(f"Chat API: {FASTAPI_URL}")
-st.sidebar.caption(f"Audio API: {TRANSCRIBE_URL}")
-
-# Prawidłowa regulacja mikrofonu jako filtr wielkości pakietu audio
-mic_sensitivity = st.sidebar.slider(
-    "Microphone sensitivity filter",
-    min_value=1000,
-    max_value=50000,
-    value=3000,
-    step=1000,
-    help="Higher value = ignores shorter or quieter recordings. Lower value = catches everything."
-)
 
 SYSTEM_INSTRUCTION = (
     "Eres un profesor nativo de español. Tu única tarea es mantener una conversación fluida. "
@@ -85,11 +79,11 @@ def build_dynamic_prompts(assistant_text=""):
         return ai_prompts
 
     return [
-        {"es": "¿Cómo estás?", "en": "How are you?"},
         {"es": "Hola, mucho gusto.", "en": "Hello, nice to meet you."},
+        {"es": "¿Cómo estás?", "en": "How are you?"},
         {"es": "Quiero aprender español.", "en": "I want to learn Spanish."},
         {"es": "Estoy listo para practicar.", "en": "I am ready to practice."},
-        {"es": "Muchas gracias por tu ayuda.", "en": "Thank you very much for your help."},
+        {"es": "Muchas gracias por tu ajuda.", "en": "Thank you very much for your help."},
         {"es": "Por favor, habla más despacio.", "en": "Please, speak more slowly."},
         {"es": "No entiendo bien.", "en": "I don't understand well."},
         {"es": "¿Qué significa esto?", "en": "What does this mean?"},
@@ -97,10 +91,8 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
 def transcribe_audio_via_backend(audio_bytes):
-    """Wysyła plik audio do Twojego własnego backendu FastAPI jako wieloczęściowy formularz file."""
     try:
         with st.spinner("🎙️ Transcribing voice via backend proxy..."):
-            # Wysyłamy plik jako klasyczny formularz HTTP POST multipart/form-data
             files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
             res = requests.post(TRANSCRIBE_URL, files=files, timeout=20)
             
@@ -184,24 +176,22 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
-# Aktywne nagrywanie głosu
+# Mikrofon Streamlit (wersja >= 1.42.0 gwarantuje poprawne działanie tego widżetu)
 audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
 
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # Warunek czułości (rozmiaru pliku)
-    if len(audio_bytes) > mic_sensitivity:
+    # Przesyłamy plik, jeśli minie podstawowy filtr minimalnych bajtów audio
+    if len(audio_bytes) > 2000:
         user_text = transcribe_audio_via_backend(audio_bytes)
         
         if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
             st.session_state.last_processed = user_text
             send_user_message(user_text)
             st.rerun()
-    else:
-        st.warning("⚠️ Audio recording too quiet or too short. Adjust the sensitivity filter if needed.")
 
-# Wyświetlanie kompletnego zestawu 10 podpowiedzi
+# Dynamiczne generowanie zestawu 10 podpowiedzi
 latest_assistant = ""
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "assistant":
@@ -212,13 +202,13 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    # Pętla generuje pełne 10 podpowiedzi z bazy AI
+    # Pętla generuje pełne 10 podpowiedzi z bazy AI ucznia
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
-# Okno konwersacji chatu
+# Renderowanie historii chatu
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "user":
         st.info(f"**You:** {msg['content']}")
