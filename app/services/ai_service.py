@@ -4,7 +4,11 @@ from app.core.config import settings
 
 class AIService:
     def __init__(self):
-        provider = (settings.LLM_PROVIDER or "ollama").lower()
+        provider = (settings.LLM_PROVIDER or "groq").lower()
+        # Jeśli jesteśmy w produkcji na Renderze, kategorycznie wymuszamy Groq
+        if os.getenv("ENVIRONMENT") == "production":
+            provider = "groq"
+
         self.llm = None
 
         if provider == "groq":
