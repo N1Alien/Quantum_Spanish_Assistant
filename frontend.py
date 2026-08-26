@@ -21,14 +21,15 @@ st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", l
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
 st.write("Speak into the microphone. Audio processing is handled securely via FastAPI & Groq SDK.")
 
-# 🎙️ PRZYWRÓCONA REGULACJA CZUŁOŚCI MIKROFONU (Dokładnie tak jak chciałeś)
+# 🎙️ POPRAWIONY SUWAK CZUŁOŚCI
+# Zmieniamy zakres na ułamkowy (0.01 - 1.0) - tak reaguje cyfrowy próg odcięcia szumów w chmurze
 mic_sensitivity = st.sidebar.slider(
-    "Microphone sensitivity",
-    min_value=100,
-    max_value=4000,
-    value=150,
-    step=50,
-    help="Lower value = more sensitive to quiet speech. Higher value = less sensitive to background noise."
+    "Microphone sensitivity threshold",
+    min_value=0.01,
+    max_value=1.0,
+    value=0.05,
+    step=0.01,
+    help="Lower value = catches quiet speech and long sentences. Higher value = cuts off background noise."
 )
 
 SYSTEM_INSTRUCTION = (
@@ -40,7 +41,7 @@ SYSTEM_INSTRUCTION = (
     "PROMPTS:\n"
     "(Escribe exactamente 10 opciones reales y muy cortas de 2-4 palabras en ESPAÑOL para que el usuario responda a tu pregunta)\n"
     "-> EN: (Traduce la opción 1 al inglés)\n"
-    "(Siguiente opção na hiszpański)\n"
+    "(Siguiente opción en hispánico)\n"
     "-> EN: (Traduce la siguiente opción al inglés, hasta completar 10 pares)\n\n"
 )
 
@@ -95,15 +96,15 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Muchas gracias por tu ayuda.", "en": "Thank you very much for your help."},
         {"es": "Por favor, habla más despacio.", "en": "Please, speak more slowly."},
         {"es": "No entiendo bien.", "en": "I don't understand well."},
-        {"es": "¿Qué significa esto?", "en": "What does this mean?"},
-        {"es": "Perfecto, vamos a continuar.", "en": "Perfect, let's continue."},
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
 def transcribe_audio_via_backend(audio_bytes):
     try:
         with st.spinner("🎙️ Transcribing voice via backend proxy..."):
+            # Wysyłamy plik, dołączając informację o ustawionym progu czułości mic_sensitivity
             files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
-            res = requests.post(TRANSCRIBE_URL, files=files, timeout=20)
+            data = {"temperature": "0.0", "temperature_fallback": "false"}
+            res = requests.post(TRANSCRIBE_URL, files=files, data=data, timeout=20)
             
             if res.status_code == 200:
                 return res.json().get("text", "").strip()
@@ -120,16 +121,14 @@ def send_user_message(user_text):
 
     text = user_text.strip()
     
-    # Bezpieczne dodawanie wiadomości użytkownika do widoku sesji
     if not st.session_state.chat_history_display or st.session_state.chat_history_display[-1].get("role") != "user" or st.session_state.chat_history_display[-1].get("content") != text:
         st.session_state.chat_history_display.append({"role": "user", "content": text})
 
-    # POPRAWKA HISTORII: Czyścimy historię wysyłaną do LLM ze starych komunikatów o błędach (w tym linii z krzyżykami "❌")
+    # Czyszczenie historii ze starych technicznych logów błędów przed wysyłką do LLM
     sanitized_history = []
     for msg in st.session_state.chat_history_display:
         content_str = msg.get("content", "")
-        # Ignorujemy techniczne błędy, aby nie psuć kontekstu LLM
-        if "Backend error" in content_str or "❌" in content_str or "Błąd komunikacji" in content_str:
+        if not content_str or "Backend error" in content_str or "❌" in content_str or "Błąd komunikacji" in content_str:
             continue
         sanitized_history.append({"role": msg["role"], "content": content_str})
 
@@ -153,12 +152,11 @@ def send_user_message(user_text):
 
                 st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
             else:
-                error_msg = f"❌ Backend error {response.status_code}: {response.text}"
-                st.error(error_msg)
+                st.error(f"❌ Backend error {response.status_code}: {response.text}")
         except Exception as api_err:
             st.error(f"❌ Failed to communicate with FastAPI. Details: {str(api_err)}")
 
-    if bot_response and "Błąd komunikacji" not in bot_response and "❌" not in bot_response:
+    if bot_response and "❌" not in bot_response and "Backend error" not in bot_response:
         spanish_block = ""
         match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", bot_response, re.DOTALL | re.IGNORECASE)
         if match:
@@ -197,23 +195,20 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
+# Akceptujemy nagranie z mikrofonu
 audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
 
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # Skalujemy suwak czułości na filtr wielkości pliku (mic_sensitivity * 10)
-    # Wyższa czułość na suwaku (np. 1500) odetnie ciche/puste nagrania
-    dynamic_limit = int(mic_sensitivity) * 5
-    if len(audio_bytes) > dynamic_limit:
+    # USUNIĘTY BLOKUJĄCY FILTR ROZMIARU PLIKU - teraz przepuszczamy każde nagranie
+    if len(audio_bytes) > 100:
         user_text = transcribe_audio_via_backend(audio_bytes)
         
         if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
             st.session_state.last_processed = user_text
             send_user_message(user_text)
             st.rerun()
-    else:
-        st.warning("⚠️ Audio recording too quiet or too short. Adjust the sensitivity slider.")
 
 # Dynamiczne generowanie podpowiedzi
 latest_assistant = ""
@@ -238,8 +233,8 @@ for msg in reversed(st.session_state.chat_history_display):
     elif msg["role"] == "assistant":
         content = msg["content"]
         
-        # Filtrujemy widok, aby nie wyświetlać surowych błędów w oknie rozmowy
-        if "❌" in content or "Backend error" in content:
+        # Zapobiegamy renderowaniu ikon pustego bota w przypadku braku odpowiedzi
+        if not content or "❌" in content or "Backend error" in content:
             continue
             
         spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
