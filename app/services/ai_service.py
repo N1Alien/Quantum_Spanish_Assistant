@@ -1,20 +1,20 @@
+import os  # <-- TA LINIA NAPRAWIA BŁĄD NAMEERROR
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from app.core.config import settings
 
-
 class AIService:
     def __init__(self):
-        provider = (settings.LLM_PROVIDER or "groq").lower()
+        provider = (settings.LLM_PROVIDER or "ollama").lower()
+        self.llm = None
+
         # Jeśli jesteśmy w produkcji na Renderze, kategorycznie wymuszamy Groq
         if os.getenv("ENVIRONMENT") == "production":
             provider = "groq"
 
-        self.llm = None
-
         if provider == "groq":
             try:
                 from langchain_groq import ChatGroq
-            except ImportError as exc:  # pragma: no cover - runtime dependency guard
+            except ImportError as exc:
                 raise RuntimeError("langchain_groq is required when LLM_PROVIDER=groq") from exc
 
             self.llm = ChatGroq(
@@ -25,13 +25,15 @@ class AIService:
 
         try:
             from langchain_ollama import ChatOllama
-        except ImportError as exc:  # pragma: no cover - runtime dependency guard
+        except ImportError as exc:
             raise RuntimeError("langchain_ollama is required when LLM_PROVIDER=ollama") from exc
 
         self.llm = ChatOllama(
             model=settings.LLM_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
         )
+# ... reszta Twojego kodu generate_spanish_response itp. pozostaje bez zmian ...
+
 
     def generate_spanish_response(self, chat_history_list: list, system_instruction: str, quantum_modifier: str, context: str) -> str:
         if self.llm is None:
