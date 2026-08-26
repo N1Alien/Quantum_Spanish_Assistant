@@ -5,23 +5,25 @@ import io
 import os
 import re
 
-# API backend URL used by the frontend to send requests.
-FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+# Adres URL Twojego backendu FastAPI
+FASTAPI_URL = os.getenv("FASTAPI_URL", "https://onrender.com")
+
+# Generujemy automatycznie adres dla drugiego endpointu (transkrypcji)
+TRANSCRIBE_URL = FASTAPI_URL.replace("/quantum-chat", "/transcribe")
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Speak into the microphone. Your voice is processed in the cloud via Groq Whisper API.")
+st.write("Speak into the microphone. Audio processing is handled securely via FastAPI & Groq SDK.")
 
-st.sidebar.caption(f"API endpoint: {FASTAPI_URL}")
+st.sidebar.caption(f"Chat API: {FASTAPI_URL}")
+st.sidebar.caption(f"Audio API: {TRANSCRIBE_URL}")
 
-# PRZYWRÓCONA REGULACJA MIKROFONU
-# Użyjemy jej jako filtra minimalnej wielkości pliku audio w bajtach, aby odciąć przypadkowe kliknięcia/szumy
+# Prawidłowa regulacja mikrofonu jako filtr wielkości pakietu audio
 mic_sensitivity = st.sidebar.slider(
     "Microphone sensitivity filter",
     min_value=1000,
     max_value=50000,
-    value=5000,
+    value=3000,
     step=1000,
     help="Higher value = ignores shorter or quieter recordings. Lower value = catches everything."
 )
@@ -94,32 +96,20 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Perfecto, vamos a continuar.", "en": "Perfect, let's continue."},
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
-def transcribe_audio_via_groq(audio_bytes):
-    """Wysyła dane audio do Groq za pomocą uniwersalnego formatu binarnego."""
-    if not GROQ_API_KEY:
-        st.error("❌ Missing GROQ_API_KEY in Frontend Environment Variables.")
-        return ""
-        
-    url = "https://groq.com"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-    
-    # Zmiana: Wysyłamy plik jako uniwersalny strumień wav, Groq Whisper automatycznie
-    # sparsuje nagłówek kontenera binarnego bez rzucania błędu 500
-    files = {
-        "file": ("audio.wav", audio_bytes, "application/octet-stream"),
-        "model": (None, "whisper-large-v3"),
-        "language": (None, "es")
-    }
-    
+def transcribe_audio_via_backend(audio_bytes):
+    """Wysyła plik audio do Twojego własnego backendu FastAPI jako wieloczęściowy formularz file."""
     try:
-        with st.spinner("🎙️ Cloud Whisper is transcribing your voice..."):
-            res = requests.post(url, headers=headers, files=files, timeout=15)
+        with st.spinner("🎙️ Transcribing voice via backend proxy..."):
+            # Wysyłamy plik jako klasyczny formularz HTTP POST multipart/form-data
+            files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
+            res = requests.post(TRANSCRIBE_URL, files=files, timeout=20)
+            
             if res.status_code == 200:
                 return res.json().get("text", "").strip()
             else:
-                st.error(f"❌ Groq Whisper Error: {res.status_code} - {res.text}")
+                st.error(f"❌ Backend Transcription Error: {res.status_code} - {res.text}")
     except Exception as e:
-        st.error(f"❌ Whisper Connection Failed: {str(e)}")
+        st.error(f"❌ Failed to connect to transcription server: {str(e)}")
     return ""
 
 
@@ -194,14 +184,15 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
+# Aktywne nagrywanie głosu
 audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
 
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # Używamy suwaka czułości jako filtra wielkości pliku dźwiękowego
+    # Warunek czułości (rozmiaru pliku)
     if len(audio_bytes) > mic_sensitivity:
-        user_text = transcribe_audio_via_groq(audio_bytes)
+        user_text = transcribe_audio_via_backend(audio_bytes)
         
         if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
             st.session_state.last_processed = user_text
@@ -210,7 +201,7 @@ if audio_file is not None:
     else:
         st.warning("⚠️ Audio recording too quiet or too short. Adjust the sensitivity filter if needed.")
 
-# DYNAMIC SUGGESTION GENERATOR BASED ON LAST LLM RESPONSE
+# Wyświetlanie kompletnego zestawu 10 podpowiedzi
 latest_assistant = ""
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "assistant":
@@ -221,13 +212,13 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    # NAPRAWIONE: Pętla zmieniona na wyświetlanie pełnych 10 podpowiedzi
+    # Pętla generuje pełne 10 podpowiedzi z bazy AI
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
-# RENDER CONVERSATION WINDOW
+# Okno konwersacji chatu
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "user":
         st.info(f"**You:** {msg['content']}")
