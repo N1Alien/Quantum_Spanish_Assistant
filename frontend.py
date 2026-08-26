@@ -1,5 +1,4 @@
 import streamlit as st
-import speech_recognition as sr
 from gtts import gTTS
 import requests
 import io
@@ -7,22 +6,15 @@ import os
 import re
 
 # API backend URL used by the frontend to send requests.
+# On local development it defaults to the local FastAPI instance.
+# In cloud deployment Render sets this via environment variables.
 FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0")
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Speak into the microphone. The interface sends the full conversation history to the production FastAPI backend.")
+st.write("Type your message in the chat input below. The interface sends the full conversation history to the production FastAPI backend.")
 
 st.sidebar.caption(f"API endpoint: {FASTAPI_URL}")
-
-mic_sensitivity = st.sidebar.slider(
-    "Microphone sensitivity",
-    min_value=100,
-    max_value=4000,
-    value=150,
-    step=50,
-    help="Lower value = more sensitive to quiet speech. Higher value = less sensitive to background noise."
-)
 
 SYSTEM_INSTRUCTION = (
     "Eres un profesor nativo de español. Tu única tarea es mantener una conversación fluida. "
@@ -74,7 +66,6 @@ def parse_ai_prompts(assistant_text):
                 dynamic_prompts.append({"es": current_es, "en": en_translation})
                 current_es = None
         else:
-            # Ignorujemy linie z angielskimi metkami, jeśli wkradły się bez strzałki
             if not re.match(r"^(?:en|english)\s*:", line, re.I):
                 current_es = normalize_prompt(line)
 
@@ -166,7 +157,7 @@ if "chat_history_display" not in st.session_state:
 if "play_audio" not in st.session_state:
     st.session_state.play_audio = False
 
-st.subheader("🎛️ Configuration and recording")
+st.subheader("🎛️ Controls and Conversation")
 
 if st.button("🔄 Reset conversation view and clear memory"):
     if os.path.exists("/tmp/web_response.mp3"):
@@ -174,30 +165,10 @@ if st.button("🔄 Reset conversation view and clear memory"):
     st.session_state.clear()
     st.rerun()
 
-audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input", sample_rate=16000)
-
-if audio_file is not None:
-    audio_bytes = audio_file.read()
-    recognizer = sr.Recognizer()
-    recognizer.energy_threshold = mic_sensitivity
-    recognizer.dynamic_energy_threshold = True
-    recognizer.dynamic_energy_adjustment_damping = 0.15
-    recognizer.dynamic_energy_ratio = 1.3
-    recognizer.pause_threshold = 0.8
-    
-    with sr.AudioFile(io.BytesIO(audio_bytes)) as source:
-        audio_data = recognizer.record(source)
-        
-    try:
-        user_text = recognizer.recognize_google(audio_data, language="es-ES")
-        
-        if "last_processed" not in st.session_state or st.session_state.last_processed != user_text:
-            st.session_state.last_processed = user_text
-            send_user_message(user_text)
-            st.rerun()
-                    
-    except Exception as e:
-        st.error(f"❌ Error during voice recognition or execution: {str(e)}")
+# STABLE AND PRODUCTION-READY TEXT CHAT INPUT (Replaced faulty st.audio_input)
+if user_message := st.chat_input("Write your response in Spanish..."):
+    send_user_message(user_message)
+    st.rerun()
 
 # DYNAMIC SUGGESTION GENERATOR BASED ON LAST LLM RESPONSE
 latest_assistant = ""
@@ -222,7 +193,7 @@ for msg in reversed(st.session_state.chat_history_display):
         st.info(f"**You:** {msg['content']}")
     elif msg["role"] == "assistant":
         content = msg["content"]
-        spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, db_url.DOTALL | re.IGNORECASE) if 'db_url' in locals() else re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
+        spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
         
         with st.chat_message("assistant"):
             if spanish_match:
