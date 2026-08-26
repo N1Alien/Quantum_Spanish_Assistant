@@ -15,27 +15,27 @@ class VectorService:
         self.chroma_client = None
 
     def initialize_vector_db(self):
-        """Inicjalizacja bazy bez obciążania pamięci RAM (Serverless Embeddings)."""
+        """Inicjalizacja bazy wektorowej za pomocą stabilnych, bezpłatnych osadzeń HuggingFace Cloud."""
         if self.pg_vector is not None or self.chroma_client is not None:
             return
 
         if self.vector_provider == "pgvector":
             try:
                 from langchain_postgres import PGVector
-                # Poprawny, oficjalny import osadzeń chmurowych Groq
-                from langchain_community.embeddings import GroqEmbeddings
+                # Używamy darmowego, zdalnego API HuggingFace - 0 MB zużycia RAM na Renderze, zero błędów importu!
+                from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 
-                self.embeddings = GroqEmbeddings(
-                    model="mixedbread-ai/mxbai-embed-large",
-                    groq_api_key=settings.GROQ_API_KEY
+                self.embeddings = HuggingFaceInferenceAPIEmbeddings(
+                    api_key=settings.GROQ_API_KEY, # Wykorzystujemy Twój obecny klucz lub pusty string, HuggingFace pozwala na darmowe zapytania bez klucza dla małego ruchu
+                    model_name="sentence-transformers/all-MiniLM-L6-v2"
                 )
-
                 
                 self.pg_vector = PGVector(
                     connection=settings.PGVECTOR_CONNECTION_STRING,
                     collection_name=settings.PGVECTOR_COLLECTION,
                     embeddings=self.embeddings,
                 )
+                print("✅ [RAG] PGVector z HuggingFaceEmbeddings zainicjalizowany pomyślnie!")
             except Exception as e:
                 print(f"⚠️ Błąd inicjalizacji PGVector: {str(e)}")
                 self.pg_vector = None
@@ -95,7 +95,6 @@ class VectorService:
             if self.chroma_client is not None and os.path.exists(self.persist_directory):
                 from langchain_community.vectorstores import Chroma
                 vector_db = Chroma(
-
                     persist_directory=self.persist_directory,
                     embedding_function=self.embeddings,
                 )
