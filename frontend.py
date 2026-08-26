@@ -18,16 +18,16 @@ else:
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Speak into the microphone. Audio processing is handled securely via FastAPI & Groq SDK.")
+st.write("Speak into the microphone. Your conversation is fully automated in the cloud.")
 
-# 🎙️ PRZYWRÓCONA ORYGINALNA REGULACJA MIKROFONU (Skalowana od 100 do 4000)
+# 🎙️ PRZYWRÓCONA REGULACJA MIKROFONU
 mic_sensitivity = st.sidebar.slider(
     "Microphone sensitivity",
     min_value=100,
     max_value=4000,
     value=150,
     step=50,
-    help="Lower value = more sensitive to quiet speech. Higher value = less sensitive to background noise."
+    help="Lower value = more sensitive. Higher value = filters out background noise."
 )
 
 SYSTEM_INSTRUCTION = (
@@ -100,14 +100,13 @@ def build_dynamic_prompts(assistant_text=""):
     ]
 def transcribe_audio_via_backend(audio_bytes):
     try:
-        with st.spinner("🎙️ Transcribing voice via backend proxy..."):
+        with st.spinner("🎙️ Transcribing voice..."):
             files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
             res = requests.post(TRANSCRIBE_URL, files=files, timeout=20)
-            
             if res.status_code == 200:
                 return res.json().get("text", "").strip()
             else:
-                st.error(f"❌ Backend Transcription Error: {res.status_code} - {res.text}")
+                st.error(f"❌ Transcription Error: {res.status_code} - {res.text}")
     except Exception as e:
         st.error(f"❌ Failed to connect to transcription server: {str(e)}")
     return ""
@@ -118,20 +117,14 @@ def send_user_message(user_text):
         return
 
     text = user_text.strip()
-    
-    # Zapisujemy do lokalnego widoku historii
     st.session_state.chat_history_display.append({"role": "user", "content": text})
 
-    # Oczyszczanie i rekonstrukcja czystej struktury JSON dla LangChain
     sanitized_history = []
     for msg in st.session_state.chat_history_display:
         role = msg.get("role")
         content = msg.get("content", "").strip()
-        
-        # Odrzucamy puste wypowiedzi i techniczne błędy, by nie psuć kontekstu LLM
-        if not content or "❌" in content or "Backend error" in content or "Błąd komunikacji" in content:
+        if not content or "❌" in content or "Backend error" in content:
             continue
-        # Wymuszamy standardową strukturę akceptowaną przez FastAPI
         sanitized_history.append({"role": str(role), "content": str(content)})
 
     payload = {
@@ -141,23 +134,19 @@ def send_user_message(user_text):
     }
 
     bot_response = ""
-    with st.spinner("🧠 Backend is processing the request (Quantum + RAG)..."):
+    with st.spinner("🧠 AI is processing your request..."):
         try:
             response = requests.post(FASTAPI_URL, json=payload, timeout=30)
             if response.status_code == 200:
                 data = response.json()
                 bot_response = data.get("response", "").strip()
-                q_style = data.get("quantum_style_applied", "Normal")
-
-                if q_style != "Normal":
-                    st.toast(f"⚛️ Quantum effect: {q_style}", icon="⚛️")
-
+                
                 if bot_response:
                     st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
             else:
                 st.error(f"❌ Backend error {response.status_code}: {response.text}")
         except Exception as api_err:
-            st.error(f"❌ Failed to communicate with FastAPI. Details: {str(api_err)}")
+            st.error(f"❌ Connection failed: {str(api_err)}")
 
     if bot_response and "❌" not in bot_response:
         spanish_block = ""
@@ -181,7 +170,7 @@ def send_user_message(user_text):
                 tts.save("/tmp/web_response.mp3")
                 st.session_state.play_audio = True
             except Exception as tts_err:
-                st.error(f"⚠️ Audio generation failed: {str(tts_err)}")
+                st.error(f"⚠️ Audio failed: {str(tts_err)}")
 
 
 if "chat_history_display" not in st.session_state:
@@ -203,8 +192,7 @@ audio_file = st.audio_input("Click the microphone icon to start speaking in Span
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # Skalujemy suwak czułości pod realną wielkość pakietu audio
-    # Im niższa wartość na suwaku (np. 150), tym łatwiej aplikacja przepuści krótkie zdania
+    # Suwak kontroluje dynamiczny próg odcięcia zbyt krótkich nagrań (szumu)
     file_cutoff = int(mic_sensitivity) * 3
     if len(audio_bytes) > file_cutoff:
         user_text = transcribe_audio_via_backend(audio_bytes)
@@ -214,7 +202,7 @@ if audio_file is not None:
             send_user_message(user_text)
             st.rerun()
 
-# Dynamiczne generowanie podpowiedzi bocznych
+# Dynamiczne podpowiedzi boczne
 latest_assistant = ""
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "assistant":
@@ -225,13 +213,13 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    # Pętla generuje pełne 10 podpowiedzi
+    # Generowanie pełnej listy 10 podpowiedzi
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
-# Renderowanie historii rozmowy
+# Okno konwersacji chatu
 for msg in reversed(st.session_state.chat_history_display):
     content = msg.get("content", "")
     role = msg.get("role")
@@ -242,6 +230,7 @@ for msg in reversed(st.session_state.chat_history_display):
     if role == "user":
         st.info(f"**You:** {content}")
     elif role == "assistant":
+        # NAPRAWIONY BŁĄD SKŁADNIOWY db_url.DOTALL -> zastąpiony re.DOTALL
         spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
         
         with st.chat_message("assistant"):

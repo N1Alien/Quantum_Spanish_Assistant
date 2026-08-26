@@ -1,49 +1,52 @@
-from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
-from app.models.schemas import SpanishChatRequest, SpanishChatResponse
-from app.services.quantum_service import quantum_service
-from app.services.ai_service import ai_service
-from app.core.database import get_db
-from app.models.chat_history import QuantumChatHistory
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from typing import List, Dict
+from groq import Groq
+from app.core.config import settings
 
 router = APIRouter()
 
+class SpanishChatRequest(BaseModel):
+    message: str = Field(..., description="Ostatnia wiadomość użytkownika")
+    system_instruction: str = Field(..., description="Główna instrukcja systemowa")
+    chat_history: List[Dict[str, str]] = Field(..., description="Pełna historia rozmowy")
+
+class SpanishChatResponse(BaseModel):
+    quantum_style_applied: str
+    response: str
+
 @router.post("/quantum-chat", response_model=SpanishChatResponse, tags=["Quantum Language Core"])
-def process_quantum_chat(payload: SpanishChatRequest, db: Session = Depends(get_db)):
+def process_quantum_chat(payload: SpanishChatRequest):
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Tekst użytkownika nie może być pusty.")
+    if not settings.GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Brakuje klucza GROQ_API_KEY na backendzie.")
 
-    # 1. Obliczenia kwantowe (Styl)
-    quantum_modifier = quantum_service.get_quantum_style_modifier(payload.message)
-    
-    # 2. RAG wyłączony w produkcji chmurowej z powodu blokad sieciowych Rendera
-    context = ""
-    
-    # 3. Generujemy odpowiedź AI - JEŚLI BAZA DANYCH SIĘ WYWALI, TO I TAK ZADZIAŁA
-    ai_response = ai_service.generate_spanish_response(
-        chat_history_list=payload.chat_history,
-        system_instruction=payload.system_instruction,
-        quantum_modifier=quantum_modifier,
-        context=context
-    )
-    
-    # 4. Trwały zapis transakcji z pełnym cofnięciem transakcji w przypadku błędu (Rollback)
-    # Dzięki temu awaria bazy danych Neon.tech NIE zablokuje i NIE wyłączy dostępu do sztucznej inteligencji
     try:
-        history_record = QuantumChatHistory(
-            user_message=payload.message,
-            quantum_style=quantum_modifier,
-            ai_response=ai_response
+        # Rekonstrukcja wiadomości bezpośrednio dla natywnego API Groq
+        messages = [{"role": "system", "content": payload.system_instruction}]
+        
+        for msg in payload.chat_history:
+            role = "assistant" if msg.get("role") == "assistant" else "user"
+            content = msg.get("content", "").strip()
+            if content and "❌" not in content and "Backend error" not in content:
+                messages.append({"role": role, "content": content})
+
+        # Oficjalne wywołanie SDK Groq - omija problemy z paczkami LangChain
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        completion = client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=messages,
+            temperature=0.7
         )
-        db.add(history_record)
-        db.commit()
-    except Exception as db_error:
-        # W przypadku błędu bazy danych chmurowej kategorycznie cofamy transakcję,
-        # oczyszczając sesję, aby aplikacja mogła bez przeszkód działać dalej
-        db.rollback()
-        print(f"⚠️ [Database Warning] Zapis historii pominięty: {str(db_error)}")
-    
-    return SpanishChatResponse(
-        quantum_style_applied=quantum_modifier,
-        response=ai_response
-    )
+        
+        ai_response = completion.choices[0].message.content
+        return SpanishChatResponse(
+            quantum_style_applied="Normal",
+            response=ai_response
+        )
+    except Exception as e:
+        return SpanishChatResponse(
+            quantum_style_applied="Normal",
+            response=f"❌ Błąd Groq API: {str(e)}"
+        )
