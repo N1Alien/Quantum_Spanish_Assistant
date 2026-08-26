@@ -28,7 +28,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 def transcribe_audio(file: UploadFile = File(...)):
     """
     Bezpieczny i stabilny endpoint pośredniczący dla Groq Whisper.
-    Omija błędy bibliotek i blokady 405/500 serwera proxy Render.
+    Naprawia strukturę krotki binarnej, eliminując błąd 500 ze strony Groqa.
     """
     if not settings.GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY is not configured on the backend.")
@@ -37,20 +37,22 @@ def transcribe_audio(file: UploadFile = File(...)):
         # Odczytujemy surowe bajty przesłane przez sieć ze Streamlita
         audio_bytes = file.file.read()
         
-        # Oficjalny URL Groq Whisper dla transkrypcji audio
         url = "https://groq.com"
         headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
         
-        # Przygotowujemy formularz binarny akceptowany przez OpenAI/Groq API
-        files = {
-            "file": ("audio.webm", audio_bytes, "audio/webm")
-        }
+        # POPRAWKA: Prawidłowy format krotki (Tuple) dla biblioteki requests.
+        # Pierwszy element to nazwa pliku z rozszerzeniem, drugi to bajty, trzeci to dokładny typ MIME.
+        files = [
+            ('file', ('audio.webm', audio_bytes, 'audio/webm'))
+        ]
+        
+        # Parametry tekstowe formularza
         data = {
             "model": "whisper-large-v3",
             "language": "es"
         }
         
-        # Wysyłamy bezpośrednie żądanie POST do serwerów Groq
+        # Wysyłamy żądanie multipart/form-data do serwerów Groq
         response = requests.post(url, headers=headers, files=files, data=data, timeout=20)
         
         if response.status_code == 200:
