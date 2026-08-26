@@ -90,10 +90,11 @@ def transcribe_audio_via_groq(audio_bytes):
     
     # Przekazujemy plik jako nienazwany blob webm/wav, Groq sam rozpozna format
     files = {
-        "file": ("audio.wav", audio_bytes, "audio/wav"),
+        "file": ("audio.webm", audio_bytes, "audio/webm"),
         "model": (None, "whisper-large-v3"),
         "language": (None, "es")
     }
+
     
     try:
         with st.spinner("🎙️ Cloud Whisper is transcribing your voice..."):
@@ -203,7 +204,7 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    for idx, prompt in enumerate(st.session_state.current_prompts[:5], start=1):
+    for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
