@@ -6,13 +6,13 @@ import os
 import re
 
 # API backend URL used by the frontend to send requests.
-# On local development it defaults to the local FastAPI instance.
-# In cloud deployment Render sets this via environment variables.
 FASTAPI_URL = os.getenv("FASTAPI_URL", "http://127.0.0")
+# Pobieramy klucz Groq bezpośrednio na frontendzie, aby zasilić Whisper API
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Type your message in the chat input below. The interface sends the full conversation history to the production FastAPI backend.")
+st.write("Speak into the microphone. Your voice is processed in the cloud via Groq Whisper API.")
 
 st.sidebar.caption(f"API endpoint: {FASTAPI_URL}")
 
@@ -38,14 +38,9 @@ def normalize_prompt(text):
 
 
 def parse_ai_prompts(assistant_text):
-    """
-    Automatycznie i dynamicznie wycina sekcję PROMPTS z odpowiedzi AI i buduje z niej
-    listę 10 spersonalizowanych podpowiedzi dla ucznia.
-    """
     if not assistant_text:
         return []
 
-    # Szukamy bloku PROMPTS: w tekście od bota
     match = re.search(r"PROMPTS:(.*)", assistant_text, re.DOTALL | re.IGNORECASE)
     if not match:
         return []
@@ -73,27 +68,45 @@ def parse_ai_prompts(assistant_text):
 
 
 def build_dynamic_prompts(assistant_text=""):
-    """
-    Zwraca podpowiedzi wygenerowane przez AI dostosowane do tematu rozmowy,
-    a jeśli ich nie ma - podstawia bazowy zestaw ratunkowy dla ucznia.
-    """
     ai_prompts = parse_ai_prompts(assistant_text)
     if ai_prompts and len(ai_prompts) >= 2:
         return ai_prompts
 
-    # Słownik awaryjny (jeśli to początek rozmowy lub AI zapomniało tagu PROMPTS)
     return [
         {"es": "¿Cómo estás?", "en": "How are you?"},
         {"es": "Hola, mucho gusto.", "en": "Hello, nice to meet you."},
-        {"es": "¿Puedes hablar más despacio?", "en": "Can you speak more slowly?"},
-        {"es": "No entiendo la pregunta.", "en": "I do not understand the question."},
-        {"es": "¿Qué significa esta palabra?", "en": "What does this word mean?"},
-        {"es": "¿Puedes repetir, por favor?", "en": "Can you repeat, please?"},
         {"es": "Quiero aprender español.", "en": "I want to learn Spanish."},
         {"es": "Estoy listo para practicar.", "en": "I am ready to practice."},
         {"es": "Muchas gracias por tu ayuda.", "en": "Thank you very much for your help."},
-        {"es": "No sé cómo responder a eso.", "en": "I do not know how to respond to that."},
     ]
+def transcribe_audio_via_groq(audio_bytes):
+    """Wysyła surowy plik audio z przeglądarki bezpośrednio do Groq Whisper API (0 MB RAM)."""
+    if not GROQ_API_KEY:
+        st.error("❌ Missing GROQ_API_KEY in Frontend Environment Variables.")
+        return ""
+        
+    url = "https://groq.com"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+    
+    # Przekazujemy plik jako nienazwany blob webm/wav, Groq sam rozpozna format
+    files = {
+        "file": ("audio.wav", audio_bytes, "audio/wav"),
+        "model": (None, "whisper-large-v3"),
+        "language": (None, "es")
+    }
+    
+    try:
+        with st.spinner("🎙️ Cloud Whisper is transcribing your voice..."):
+            res = requests.post(url, headers=headers, files=files, timeout=15)
+            if res.status_code == 200:
+                return res.json().get("text", "").strip()
+            else:
+                st.error(f"❌ Groq Whisper Error: {res.status_code} - {res.text}")
+    except Exception as e:
+        st.error(f"❌ Whisper Connection Failed: {str(e)}")
+    return ""
+
+
 def send_user_message(user_text):
     if not user_text or not user_text.strip():
         return
@@ -109,7 +122,7 @@ def send_user_message(user_text):
     }
 
     bot_response = ""
-    with st.spinner("🧠 Backend is processing the request (Quantum + RAG + Postgres)..."):
+    with st.spinner("🧠 Backend is processing the request (Quantum + RAG)..."):
         try:
             response = requests.post(FASTAPI_URL, json=payload, timeout=30)
             if response.status_code == 200:
@@ -122,9 +135,9 @@ def send_user_message(user_text):
 
                 st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
             else:
-                st.error(f"❌ Backend returned error status code: {response.status_code}. Response text: {response.text}")
+                st.error(f"❌ Backend error: {response.status_code}. {response.text}")
         except Exception as api_err:
-            st.error(f"❌ Failed to communicate with FastAPI at {FASTAPI_URL}. Details: {str(api_err)}")
+            st.error(f"❌ Failed to communicate with FastAPI. Details: {str(api_err)}")
 
     if bot_response:
         spanish_block = ""
@@ -157,18 +170,27 @@ if "chat_history_display" not in st.session_state:
 if "play_audio" not in st.session_state:
     st.session_state.play_audio = False
 
-st.subheader("🎛️ Controls and Conversation")
+st.subheader("🎛️ Microphone and Conversation")
 
-if st.button("🔄 Reset conversation view and clear memory"):
+if st.button("🔄 Reset conversation"):
     if os.path.exists("/tmp/web_response.mp3"):
         os.remove("/tmp/web_response.mp3")
     st.session_state.clear()
     st.rerun()
 
-# STABLE AND PRODUCTION-READY TEXT CHAT INPUT (Replaced faulty st.audio_input)
-if user_message := st.chat_input("Write your response in Spanish..."):
-    send_user_message(user_message)
-    st.rerun()
+# 🎤 PRZYWRÓCONY MIKROFON (Zoptymalizowany pod API)
+audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
+
+if audio_file is not None:
+    audio_bytes = audio_file.read()
+    
+    # Wywołujemy natychmiastowe bezserwerowe rozpoznawanie mowy w chmurze
+    user_text = transcribe_audio_via_groq(audio_bytes)
+    
+    if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
+        st.session_state.last_processed = user_text
+        send_user_message(user_text)
+        st.rerun()
 
 # DYNAMIC SUGGESTION GENERATOR BASED ON LAST LLM RESPONSE
 latest_assistant = ""
@@ -181,8 +203,7 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    st.caption("These choices are dynamically tailored by the AI to match the context and help you answer its question.")
-    for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
+    for idx, prompt in enumerate(st.session_state.current_prompts[:5], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
@@ -197,23 +218,11 @@ for msg in reversed(st.session_state.chat_history_display):
         
         with st.chat_message("assistant"):
             if spanish_match:
-                st.markdown("🗣️ **Conversation:**")
+                st.markdown("🗣 *Conversation:*")
                 raw_text = spanish_match.group(1).strip()
                 formatted_lines = []
                 for line in raw_text.split("\n"):
                     line_strip = line.strip()
-                    if line_strip.startswith("-> EN:"):
-                        clean_en = line_strip.replace("-> EN:", "").strip()
-                        formatted_lines.append(f":orange[{clean_en}]")
-                    elif line_strip:
-                        formatted_lines.append(f"{line_strip}")
-                st.markdown("\n\n".join(formatted_lines))
-            else:
-                formatted_lines = []
-                for line in content.split("\n"):
-                    line_strip = line.strip()
-                    if any(m in line_strip.upper() for m in ["PROMPTS", "SPANISH", "VOCABULARY"]):
-                        continue
                     if line_strip.startswith("-> EN:"):
                         clean_en = line_strip.replace("-> EN:", "").strip()
                         formatted_lines.append(f":orange[{clean_en}]")
