@@ -22,13 +22,14 @@ class VectorService:
         if self.vector_provider == "pgvector":
             try:
                 from langchain_postgres import PGVector
-                from langchain_groq import GroqEmbeddings
+                # Poprawny, oficjalny import osadzeń chmurowych Groq
+                from langchain_community.embeddings import GroqEmbeddings
 
-                # Używamy zdalnego API Groq do generowania wektorów - zużycie RAM = 0 MB!
                 self.embeddings = GroqEmbeddings(
                     model="mixedbread-ai/mxbai-embed-large",
                     groq_api_key=settings.GROQ_API_KEY
                 )
+
                 
                 self.pg_vector = PGVector(
                     connection=settings.PGVECTOR_CONNECTION_STRING,
