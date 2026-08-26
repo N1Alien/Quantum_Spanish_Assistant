@@ -5,10 +5,9 @@ import io
 import os
 import re
 
-# Prawidłowe parsowanie bazowego adresu URL z Render.com
+# Prawidłowe parsowanie adresów URL z Render.com
 BASE_URL = os.getenv("FASTAPI_URL", "http://127.0.0")
 
-# Rozdzielamy adresy na dwa poprawne punkty końcowe API
 if "/api/v1/quantum-chat" in BASE_URL:
     FASTAPI_URL = BASE_URL
     TRANSCRIBE_URL = BASE_URL.replace("/quantum-chat", "/transcribe")
@@ -21,15 +20,14 @@ st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", l
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
 st.write("Speak into the microphone. Audio processing is handled securely via FastAPI & Groq SDK.")
 
-# 🎙️ POPRAWIONY SUWAK CZUŁOŚCI
-# Zmieniamy zakres na ułamkowy (0.01 - 1.0) - tak reaguje cyfrowy próg odcięcia szumów w chmurze
+# 🎙️ PRZYWRÓCONA ORYGINALNA REGULACJA MIKROFONU (Skalowana od 100 do 4000)
 mic_sensitivity = st.sidebar.slider(
-    "Microphone sensitivity threshold",
-    min_value=0.01,
-    max_value=1.0,
-    value=0.05,
-    step=0.01,
-    help="Lower value = catches quiet speech and long sentences. Higher value = cuts off background noise."
+    "Microphone sensitivity",
+    min_value=100,
+    max_value=4000,
+    value=150,
+    step=50,
+    help="Lower value = more sensitive to quiet speech. Higher value = less sensitive to background noise."
 )
 
 SYSTEM_INSTRUCTION = (
@@ -96,15 +94,15 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Muchas gracias por tu ayuda.", "en": "Thank you very much for your help."},
         {"es": "Por favor, habla más despacio.", "en": "Please, speak more slowly."},
         {"es": "No entiendo bien.", "en": "I don't understand well."},
+        {"es": "¿Qué significa esto?", "en": "What does this mean?"},
+        {"es": "Perfecto, vamos a continuar.", "en": "Perfect, let's continue."},
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
 def transcribe_audio_via_backend(audio_bytes):
     try:
         with st.spinner("🎙️ Transcribing voice via backend proxy..."):
-            # Wysyłamy plik, dołączając informację o ustawionym progu czułości mic_sensitivity
             files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
-            data = {"temperature": "0.0", "temperature_fallback": "false"}
-            res = requests.post(TRANSCRIBE_URL, files=files, data=data, timeout=20)
+            res = requests.post(TRANSCRIBE_URL, files=files, timeout=20)
             
             if res.status_code == 200:
                 return res.json().get("text", "").strip()
@@ -121,16 +119,20 @@ def send_user_message(user_text):
 
     text = user_text.strip()
     
-    if not st.session_state.chat_history_display or st.session_state.chat_history_display[-1].get("role") != "user" or st.session_state.chat_history_display[-1].get("content") != text:
-        st.session_state.chat_history_display.append({"role": "user", "content": text})
+    # Zapisujemy do lokalnego widoku historii
+    st.session_state.chat_history_display.append({"role": "user", "content": text})
 
-    # Czyszczenie historii ze starych technicznych logów błędów przed wysyłką do LLM
+    # Oczyszczanie i rekonstrukcja czystej struktury JSON dla LangChain
     sanitized_history = []
     for msg in st.session_state.chat_history_display:
-        content_str = msg.get("content", "")
-        if not content_str or "Backend error" in content_str or "❌" in content_str or "Błąd komunikacji" in content_str:
+        role = msg.get("role")
+        content = msg.get("content", "").strip()
+        
+        # Odrzucamy puste wypowiedzi i techniczne błędy, by nie psuć kontekstu LLM
+        if not content or "❌" in content or "Backend error" in content or "Błąd komunikacji" in content:
             continue
-        sanitized_history.append({"role": msg["role"], "content": content_str})
+        # Wymuszamy standardową strukturę akceptowaną przez FastAPI
+        sanitized_history.append({"role": str(role), "content": str(content)})
 
     payload = {
         "message": text,
@@ -144,19 +146,20 @@ def send_user_message(user_text):
             response = requests.post(FASTAPI_URL, json=payload, timeout=30)
             if response.status_code == 200:
                 data = response.json()
-                bot_response = data["response"]
-                q_style = data["quantum_style_applied"]
+                bot_response = data.get("response", "").strip()
+                q_style = data.get("quantum_style_applied", "Normal")
 
                 if q_style != "Normal":
                     st.toast(f"⚛️ Quantum effect: {q_style}", icon="⚛️")
 
-                st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
+                if bot_response:
+                    st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
             else:
                 st.error(f"❌ Backend error {response.status_code}: {response.text}")
         except Exception as api_err:
             st.error(f"❌ Failed to communicate with FastAPI. Details: {str(api_err)}")
 
-    if bot_response and "❌" not in bot_response and "Backend error" not in bot_response:
+    if bot_response and "❌" not in bot_response:
         spanish_block = ""
         match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", bot_response, re.DOTALL | re.IGNORECASE)
         if match:
@@ -195,14 +198,15 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
-# Akceptujemy nagranie z mikrofonu
 audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
 
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # USUNIĘTY BLOKUJĄCY FILTR ROZMIARU PLIKU - teraz przepuszczamy każde nagranie
-    if len(audio_bytes) > 100:
+    # Skalujemy suwak czułości pod realną wielkość pakietu audio
+    # Im niższa wartość na suwaku (np. 150), tym łatwiej aplikacja przepuści krótkie zdania
+    file_cutoff = int(mic_sensitivity) * 3
+    if len(audio_bytes) > file_cutoff:
         user_text = transcribe_audio_via_backend(audio_bytes)
         
         if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
@@ -210,7 +214,7 @@ if audio_file is not None:
             send_user_message(user_text)
             st.rerun()
 
-# Dynamiczne generowanie podpowiedzi
+# Dynamiczne generowanie podpowiedzi bocznych
 latest_assistant = ""
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "assistant":
@@ -221,22 +225,23 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
+    # Pętla generuje pełne 10 podpowiedzi
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
-# Okno konwersacji chatu
+# Renderowanie historii rozmowy
 for msg in reversed(st.session_state.chat_history_display):
-    if msg["role"] == "user":
-        st.info(f"**You:** {msg['content']}")
-    elif msg["role"] == "assistant":
-        content = msg["content"]
+    content = msg.get("content", "")
+    role = msg.get("role")
+    
+    if not content or "❌" in content or "Backend error" in content:
+        continue
         
-        # Zapobiegamy renderowaniu ikon pustego bota w przypadku braku odpowiedzi
-        if not content or "❌" in content or "Backend error" in content:
-            continue
-            
+    if role == "user":
+        st.info(f"**You:** {content}")
+    elif role == "assistant":
         spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
         
         with st.chat_message("assistant"):
