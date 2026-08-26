@@ -13,7 +13,6 @@ if "/api/v1/quantum-chat" in BASE_URL:
     FASTAPI_URL = BASE_URL
     TRANSCRIBE_URL = BASE_URL.replace("/quantum-chat", "/transcribe")
 else:
-    # Jeśli podano samą domenę w konfiguracji Rendera
     BASE_URL = BASE_URL.rstrip("/")
     FASTAPI_URL = f"{BASE_URL}/api/v1/quantum-chat"
     TRANSCRIBE_URL = f"{BASE_URL}/api/v1/transcribe"
@@ -21,6 +20,16 @@ else:
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
 st.write("Speak into the microphone. Audio processing is handled securely via FastAPI & Groq SDK.")
+
+# 🎙️ PRZYWRÓCONA REGULACJA CZUŁOŚCI MIKROFONU (Dokładnie tak jak chciałeś)
+mic_sensitivity = st.sidebar.slider(
+    "Microphone sensitivity",
+    min_value=100,
+    max_value=4000,
+    value=150,
+    step=50,
+    help="Lower value = more sensitive to quiet speech. Higher value = less sensitive to background noise."
+)
 
 SYSTEM_INSTRUCTION = (
     "Eres un profesor nativo de español. Tu única tarea es mantener una conversación fluida. "
@@ -31,7 +40,7 @@ SYSTEM_INSTRUCTION = (
     "PROMPTS:\n"
     "(Escribe exactamente 10 opciones reales y muy cortas de 2-4 palabras en ESPAÑOL para que el usuario responda a tu pregunta)\n"
     "-> EN: (Traduce la opción 1 al inglés)\n"
-    "(Siguiente opción en hispánico)\n"
+    "(Siguiente opção na hiszpański)\n"
     "-> EN: (Traduce la siguiente opción al inglés, hasta completar 10 pares)\n\n"
 )
 
@@ -83,7 +92,7 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "¿Cómo estás?", "en": "How are you?"},
         {"es": "Quiero aprender español.", "en": "I want to learn Spanish."},
         {"es": "Estoy listo para practicar.", "en": "I am ready to practice."},
-        {"es": "Muchas gracias por tu ajuda.", "en": "Thank you very much for your help."},
+        {"es": "Muchas gracias por tu ayuda.", "en": "Thank you very much for your help."},
         {"es": "Por favor, habla más despacio.", "en": "Please, speak more slowly."},
         {"es": "No entiendo bien.", "en": "I don't understand well."},
         {"es": "¿Qué significa esto?", "en": "What does this mean?"},
@@ -110,13 +119,24 @@ def send_user_message(user_text):
         return
 
     text = user_text.strip()
+    
+    # Bezpieczne dodawanie wiadomości użytkownika do widoku sesji
     if not st.session_state.chat_history_display or st.session_state.chat_history_display[-1].get("role") != "user" or st.session_state.chat_history_display[-1].get("content") != text:
         st.session_state.chat_history_display.append({"role": "user", "content": text})
+
+    # POPRAWKA HISTORII: Czyścimy historię wysyłaną do LLM ze starych komunikatów o błędach (w tym linii z krzyżykami "❌")
+    sanitized_history = []
+    for msg in st.session_state.chat_history_display:
+        content_str = msg.get("content", "")
+        # Ignorujemy techniczne błędy, aby nie psuć kontekstu LLM
+        if "Backend error" in content_str or "❌" in content_str or "Błąd komunikacji" in content_str:
+            continue
+        sanitized_history.append({"role": msg["role"], "content": content_str})
 
     payload = {
         "message": text,
         "system_instruction": SYSTEM_INSTRUCTION,
-        "chat_history": st.session_state.chat_history_display
+        "chat_history": sanitized_history
     }
 
     bot_response = ""
@@ -133,11 +153,12 @@ def send_user_message(user_text):
 
                 st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
             else:
-                st.error(f"❌ Backend error: {response.status_code}. {response.text}")
+                error_msg = f"❌ Backend error {response.status_code}: {response.text}"
+                st.error(error_msg)
         except Exception as api_err:
             st.error(f"❌ Failed to communicate with FastAPI. Details: {str(api_err)}")
 
-    if bot_response:
+    if bot_response and "Błąd komunikacji" not in bot_response and "❌" not in bot_response:
         spanish_block = ""
         match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", bot_response, re.DOTALL | re.IGNORECASE)
         if match:
@@ -176,22 +197,25 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
-# Mikrofon Streamlit (wersja >= 1.42.0 gwarantuje poprawne działanie tego widżetu)
 audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
 
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # Przesyłamy plik, jeśli minie podstawowy filtr minimalnych bajtów audio
-    if len(audio_bytes) > 2000:
+    # Skalujemy suwak czułości na filtr wielkości pliku (mic_sensitivity * 10)
+    # Wyższa czułość na suwaku (np. 1500) odetnie ciche/puste nagrania
+    dynamic_limit = int(mic_sensitivity) * 5
+    if len(audio_bytes) > dynamic_limit:
         user_text = transcribe_audio_via_backend(audio_bytes)
         
         if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
             st.session_state.last_processed = user_text
             send_user_message(user_text)
             st.rerun()
+    else:
+        st.warning("⚠️ Audio recording too quiet or too short. Adjust the sensitivity slider.")
 
-# Dynamiczne generowanie zestawu 10 podpowiedzi
+# Dynamiczne generowanie podpowiedzi
 latest_assistant = ""
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "assistant":
@@ -202,18 +226,22 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    # Pętla generuje pełne 10 podpowiedzi z bazy AI ucznia
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
-# Renderowanie historii chatu
+# Okno konwersacji chatu
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "user":
         st.info(f"**You:** {msg['content']}")
     elif msg["role"] == "assistant":
         content = msg["content"]
+        
+        # Filtrujemy widok, aby nie wyświetlać surowych błędów w oknie rozmowy
+        if "❌" in content or "Backend error" in content:
+            continue
+            
         spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
         
         with st.chat_message("assistant"):
