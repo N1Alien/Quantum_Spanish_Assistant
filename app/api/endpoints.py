@@ -32,9 +32,9 @@ def process_quantum_chat(payload: SpanishChatRequest):
         # Inicjalizacja klienta Groq SDK
         client = Groq(api_key=settings.GROQ_API_KEY)
         
-        # POPRAWKA: Używamy oficjalnej, zaktualizowanej i w 100% aktywnej nazwy modelu w API Groq
+        # POPRAWKA ARCHITEKTONICZNA: Używamy jedynej, w 100% aktywnej i flagowej nazwy modelu w API Groq
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.7
         )
@@ -47,7 +47,6 @@ def process_quantum_chat(payload: SpanishChatRequest):
         )
         
     except Exception as e:
-        # KONIEC Z UKRYWANIEM BŁĘDU: Jeśli Groq odrzuci zapytanie, zwracamy realny powód prosto na ekran frontendu
         error_details = str(e)
         fallback_text = (
             f"SPANISH:\nHubo un problema técnico con Groq API. Detalles del error: {error_details}\n"
