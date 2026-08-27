@@ -22,24 +22,24 @@ def process_quantum_chat(payload: SpanishChatRequest):
     if not settings.GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="Brakuje klucza GROQ_API_KEY na backendzie.")
 
-    # 1. Budujemy czystą, bezpieczną strukturę wiadomości dla oficjalnego SDK
+    # Budujemy czystą strukturę wiadomości
     messages = [
         {"role": "system", "content": payload.system_instruction},
         {"role": "user", "content": payload.message.strip()}
     ]
 
     try:
-        # 2. Inicjalizacja oficjalnego klienta Groq SDK
+        # Inicjalizacja klienta Groq SDK
         client = Groq(api_key=settings.GROQ_API_KEY)
         
-        # 3. Wywołanie potoku za pomocą oficjalnego i stabilnego modelu Llama 3
+        # POPRAWKA: Używamy oficjalnej, zaktualizowanej i w 100% aktywnej nazwy modelu w API Groq
         completion = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=messages,
             temperature=0.7
         )
         
-        ai_response = completion.choices[0].message.content.strip()
+        ai_response = completion.choices.message.content.strip()
         
         return SpanishChatResponse(
             quantum_style_applied="Normal",
@@ -47,13 +47,13 @@ def process_quantum_chat(payload: SpanishChatRequest):
         )
         
     except Exception as e:
-        # Awaryjny fallback struktury tekstowej zgodny z parserem frontendu (w razie awarii chmury)
+        # KONIEC Z UKRYWANIEM BŁĘDU: Jeśli Groq odrzuci zapytanie, zwracamy realny powód prosto na ekran frontendu
+        error_details = str(e)
         fallback_text = (
-            "SPANISH:\n¡Hola! Lo siento, hubo un problema técnico. ¿Podemos continuar la conversación?\n"
-            "-> EN: Hello! I'm sorry, there was a technical problem. Can we continue the conversation?\n\n"
-            "PROMPTS:\nSí, claro.\n-> EN: Yes, of course.\n¿Qué pasó?\n-> EN: What happened?"
+            f"SPANISH:\nHubo un problema técnico con Groq API. Detalles del error: {error_details}\n"
+            f"-> EN: Technical problem with Groq API. Error details: {error_details}\n\n"
+            f"PROMPTS:\nIntentar de nuevo\n-> EN: Try again"
         )
-        print(f"⚠️ [Groq Exception] Details: {str(e)}")
         return SpanishChatResponse(
             quantum_style_applied="Normal",
             response=fallback_text
