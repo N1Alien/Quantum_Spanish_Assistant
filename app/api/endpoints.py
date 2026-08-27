@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict
-import requests
+from groq import Groq
 from app.core.config import settings
 
 router = APIRouter()
@@ -22,44 +22,39 @@ def process_quantum_chat(payload: SpanishChatRequest):
     if not settings.GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="Brakuje klucza GROQ_API_KEY na backendzie.")
 
-    # 1. Rekonstrukcja wiadomości dla chatu
-    messages = [{"role": "system", "content": payload.system_instruction}]
-    for msg in payload.chat_history:
-        role = "assistant" if msg.get("role") == "assistant" else "user"
-        content = msg.get("content", "").strip()
-        if content and "❌" not in content and "Backend error" not in content:
-            messages.append({"role": role, "content": content})
-
-    # 2. Bezpośrednie żądanie HTTP POST do oficjalnego API Groq
-    url = "https://groq.com"
-    headers = {
-        "Authorization": f"Bearer {settings.GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    # POPRAWKA: Używamy oficjalnej, stabilnej nazwy modelu akceptowanej przez Groq Cloud API
-    data = {
-        "model": "llama3-8b-8192", 
-        "messages": messages,
-        "temperature": 0.7
-    }
+    # 1. Budujemy czystą, bezpieczną strukturę wiadomości dla oficjalnego SDK
+    messages = [
+        {"role": "system", "content": payload.system_instruction},
+        {"role": "user", "content": payload.message.strip()}
+    ]
 
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=20)
-        if response.status_code == 200:
-            ai_response = response.json()["choices"]["message"]["content"]
-            return SpanishChatResponse(
-                quantum_style_applied="Normal",
-                response=ai_response
-            )
-        else:
-            # W przypadku błędu zwracamy szczegóły, aby frontend mógł je zalogować (koniec z ukrywaniem błędu)
-            return SpanishChatResponse(
-                quantum_style_applied="Normal",
-                response=f"SPANISH:\nError de API Groq: {response.text}\n-> EN: Groq API Error.\n\nPROMPTS:\nIntentar de nuevo\n-> EN: Try again"
-            )
-    except Exception as e:
+        # 2. Inicjalizacja oficjalnego klienta Groq SDK
+        client = Groq(api_key=settings.GROQ_API_KEY)
+        
+        # 3. Wywołanie potoku za pomocą oficjalnego i stabilnego modelu Llama 3
+        completion = client.chat.completions.create(
+            model="llama3-8b-8192",
+            messages=messages,
+            temperature=0.7
+        )
+        
+        ai_response = completion.choices[0].message.content.strip()
+        
         return SpanishChatResponse(
             quantum_style_applied="Normal",
-            response=f"SPANISH:\nError de conexión: {str(e)}.\n-> EN: Connection error.\n\nPROMPTS:\nIntentar de nuevo\n-> EN: Try again"
+            response=ai_response
+        )
+        
+    except Exception as e:
+        # Awaryjny fallback struktury tekstowej zgodny z parserem frontendu (w razie awarii chmury)
+        fallback_text = (
+            "SPANISH:\n¡Hola! Lo siento, hubo un problema técnico. ¿Podemos continuar la conversación?\n"
+            "-> EN: Hello! I'm sorry, there was a technical problem. Can we continue the conversation?\n\n"
+            "PROMPTS:\nSí, claro.\n-> EN: Yes, of course.\n¿Qué pasó?\n-> EN: What happened?"
+        )
+        print(f"⚠️ [Groq Exception] Details: {str(e)}")
+        return SpanishChatResponse(
+            quantum_style_applied="Normal",
+            response=fallback_text
         )
