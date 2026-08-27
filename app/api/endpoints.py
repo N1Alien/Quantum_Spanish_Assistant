@@ -22,7 +22,7 @@ def process_quantum_chat(payload: SpanishChatRequest):
     if not settings.GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="Brakuje klucza GROQ_API_KEY na backendzie.")
 
-    # Rekonstrukcja wiadomości dla chatu
+    # 1. Rekonstrukcja wiadomości dla chatu
     messages = [{"role": "system", "content": payload.system_instruction}]
     for msg in payload.chat_history:
         role = "assistant" if msg.get("role") == "assistant" else "user"
@@ -30,14 +30,16 @@ def process_quantum_chat(payload: SpanishChatRequest):
         if content and "❌" not in content and "Backend error" not in content:
             messages.append({"role": role, "content": content})
 
-    # Bezpośrednie żądanie HTTP POST z wymuszonym modelem produkcyjnym Llama 3.1
+    # 2. Bezpośrednie żądanie HTTP POST do oficjalnego API Groq
     url = "https://groq.com"
     headers = {
         "Authorization": f"Bearer {settings.GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # POPRAWKA: Używamy oficjalnej, stabilnej nazwy modelu akceptowanej przez Groq Cloud API
     data = {
-        "model": "llama-3.1-8b-instant",  # Wymuszona prawidłowa nazwa modelu
+        "model": "llama3-8b-8192", 
         "messages": messages,
         "temperature": 0.7
     }
@@ -51,10 +53,10 @@ def process_quantum_chat(payload: SpanishChatRequest):
                 response=ai_response
             )
         else:
-            # Rejestrujemy błąd w strukturze, aby użytkownik widział poprawną instrukcję
+            # W przypadku błędu zwracamy szczegóły, aby frontend mógł je zalogować (koniec z ukrywaniem błędu)
             return SpanishChatResponse(
                 quantum_style_applied="Normal",
-                response=f"SPANISH:\nHubo un problema con la respuesta de AI. Por favor, intenta de nuevo.\n-> EN: There was a problem with the AI response. Please try again.\n\nPROMPTS:\nIntentar de nuevo\n-> EN: Try again"
+                response=f"SPANISH:\nError de API Groq: {response.text}\n-> EN: Groq API Error.\n\nPROMPTS:\nIntentar de nuevo\n-> EN: Try again"
             )
     except Exception as e:
         return SpanishChatResponse(
