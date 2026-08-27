@@ -5,22 +5,21 @@ import io
 import os
 import re
 
-# Prawidłowe parsowanie adresów URL z Render.com
-BASE_URL = os.getenv("FASTAPI_URL", "http://127.0.0")
+# Pobieramy bazową domenę Twojego backendu (np. https://onrender.com)
+BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001")
 
-if "/api/v1/quantum-chat" in BASE_URL:
-    FASTAPI_URL = BASE_URL
-    TRANSCRIBE_URL = BASE_URL.replace("/quantum-chat", "/transcribe")
-else:
-    BASE_URL = BASE_URL.rstrip("/")
-    FASTAPI_URL = f"{BASE_URL}/api/v1/quantum-chat"
-    TRANSCRIBE_URL = f"{BASE_URL}/api/v1/transcribe"
+# Czyścimy adres na wypadek, gdyby w panelu wkleił się stary endpoint
+BACKEND_BASE = BACKEND_BASE.replace("/api/v1/quantum-chat", "").rstrip("/")
+
+# Definiujemy dwa absolutnie niezależne, czyste punkty końcowe
+FASTAPI_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
+TRANSCRIBE_URL = f"{BACKEND_BASE}/api/v1/transcribe"
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Speak into the microphone. Your conversation is fully automated in the cloud.")
+st.write("Speak into the microphone. Audio processing is handled securely via Gemini API.")
 
-# 🎙️ PRZYWRÓCONA REGULACJA MIKROFONU
+# Regulacja mikrofonu jako proste odcięcie szumów
 mic_sensitivity = st.sidebar.slider(
     "Microphone sensitivity",
     min_value=100,
@@ -192,7 +191,6 @@ audio_file = st.audio_input("Click the microphone icon to start speaking in Span
 if audio_file is not None:
     audio_bytes = audio_file.read()
     
-    # Suwak kontroluje dynamiczny próg odcięcia zbyt krótkich nagrań (szumu)
     file_cutoff = int(mic_sensitivity) * 3
     if len(audio_bytes) > file_cutoff:
         user_text = transcribe_audio_via_backend(audio_bytes)
@@ -202,7 +200,6 @@ if audio_file is not None:
             send_user_message(user_text)
             st.rerun()
 
-# Dynamiczne podpowiedzi boczne
 latest_assistant = ""
 for msg in reversed(st.session_state.chat_history_display):
     if msg["role"] == "assistant":
@@ -213,13 +210,11 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    # Generowanie pełnej listy 10 podpowiedzi
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
-# Okno konwersacji chatu
 for msg in reversed(st.session_state.chat_history_display):
     content = msg.get("content", "")
     role = msg.get("role")
@@ -230,7 +225,6 @@ for msg in reversed(st.session_state.chat_history_display):
     if role == "user":
         st.info(f"**You:** {content}")
     elif role == "assistant":
-        # NAPRAWIONY BŁĄD SKŁADNIOWY db_url.DOTALL -> zastąpiony re.DOTALL
         spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
         
         with st.chat_message("assistant"):
