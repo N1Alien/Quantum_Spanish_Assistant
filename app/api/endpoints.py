@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict
-from groq import Groq
-from app.core.config import settings
+import requests
+import os
 
 router = APIRouter()
 
@@ -19,41 +19,54 @@ class SpanishChatResponse(BaseModel):
 def process_quantum_chat(payload: SpanishChatRequest):
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Tekst użytkownika nie może być pusty.")
-    if not settings.GROQ_API_KEY:
-        raise HTTPException(status_code=500, detail="Brakuje klucza GROQ_API_KEY na backendzie.")
+    
+    # Pobieramy klucz Gemini bezpośrednio ze środowiska Rendera
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        return SpanishChatResponse(
+            quantum_style_applied="Normal",
+            response="SPANISH:\nError: GEMINI_API_KEY no está configurado en Render.\n-> EN: Error: GEMINI_API_KEY is not configured on Render.\n\nPROMPTS:\nConfigurar clave\n-> EN: Configure key"
+        )
 
-    # Budujemy czystą strukturę wiadomości
-    messages = [
-        {"role": "system", "content": payload.system_instruction},
-        {"role": "user", "content": payload.message.strip()}
-    ]
+    # Rekonstrukcja historii dla formatu Google Gemini API
+    # Gemini wymaga struktury: {"role": "user"|"model", "parts": [{"text": "..."}]}
+    contents = []
+    for msg in payload.chat_history:
+        role = "model" if msg.get("role") == "assistant" else "user"
+        content = msg.get("content", "").strip()
+        if content and "❌" not in content and "Backend error" not in content and "problem técnico" not in content:
+            contents.append({
+                "role": role,
+                "parts": [{"text": content}]
+            })
+
+    # Dodajemy aktualną instrukcję systemową bezpośrednio na początek kontekstu chatu
+    contents.insert(0, {
+        "role": "user",
+        "parts": [{"text": f"[SYSTEM INSTRUCTION - ACT AS THIS PROFILE]:\n{payload.system_instruction}"}]
+    })
+
+    # Oficjalny endpoint Google Gemini 2.5 Flash
+    url = f"https://googleapis.com{gemini_key}"
+    headers = {"Content-Type": "application/json"}
+    payload_data = {"contents": contents}
 
     try:
-        # Inicjalizacja klienta Groq SDK
-        client = Groq(api_key=settings.GROQ_API_KEY)
-        
-        # POPRAWKA ARCHITEKTONICZNA: Używamy jedynej, w 100% aktywnej i flagowej nazwy modelu w API Groq
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.7
-        )
-        
-        ai_response = completion.choices.message.content.strip()
-        
-        return SpanishChatResponse(
-            quantum_style_applied="Normal",
-            response=ai_response
-        )
-        
+        response = requests.post(url, headers=headers, json=payload_data, timeout=20)
+        if response.status_code == 200:
+            # Wyciągamy wygenerowany tekst z oficjalnej struktury JSON Google Gemini
+            ai_response = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return SpanishChatResponse(
+                quantum_style_applied="Normal",
+                response=ai_response
+            )
+        else:
+            return SpanishChatResponse(
+                quantum_style_applied="Normal",
+                response=f"SPANISH:\nError de API Gemini ({response.status_code}): {response.text}\n-> EN: Gemini API Error.\n\nPROMPTS:\nIntentar de nuevo\n-> EN: Try again"
+            )
     except Exception as e:
-        error_details = str(e)
-        fallback_text = (
-            f"SPANISH:\nHubo un problema técnico con Groq API. Detalles del error: {error_details}\n"
-            f"-> EN: Technical problem with Groq API. Error details: {error_details}\n\n"
-            f"PROMPTS:\nIntentar de nuevo\n-> EN: Try again"
-        )
         return SpanishChatResponse(
             quantum_style_applied="Normal",
-            response=fallback_text
+            response=f"SPANISH:\nError de conexión Gemini: {str(e)}.\n-> EN: Gemini Connection error.\n\nPROMPTS:\nIntentar de nuevo\n-> EN: Try again"
         )
