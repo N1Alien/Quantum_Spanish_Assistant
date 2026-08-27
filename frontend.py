@@ -5,21 +5,21 @@ import io
 import os
 import re
 
-# Pobieramy bazową domenę Twojego backendu (np. https://onrender.com)
+# Odczytujemy bazowy adres z konfiguracji Rendera (np. https://onrender.com)
 BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001")
 
-# Czyścimy adres na wypadek, gdyby w panelu wkleił się stary endpoint
+# Czyścimy adres na wypadek, gdyby wkleił się stary, pełny endpoint chatu
 BACKEND_BASE = BACKEND_BASE.replace("/api/v1/quantum-chat", "").rstrip("/")
 
-# Definiujemy dwa absolutnie niezależne, czyste punkty końcowe
+# Budujemy dwa całkowicie niezależne, poprawne adresy URL (Koniec błędów zniekształcenia domeny!)
 FASTAPI_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
 TRANSCRIBE_URL = f"{BACKEND_BASE}/api/v1/transcribe"
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Speak into the microphone. Audio processing is handled securely via Gemini API.")
+st.write("Speak into the microphone. Your language assistant is fully powered by Gemini Cloud.")
 
-# Regulacja mikrofonu jako proste odcięcie szumów
+# 🎙️ PRZYWRÓCONA ORYGINALNA REGULACJA MIKROFONU (Od 100 do 4000)
 mic_sensitivity = st.sidebar.slider(
     "Microphone sensitivity",
     min_value=100,
@@ -97,6 +97,8 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Perfecto, vamos a continuar.", "en": "Perfect, let's continue."},
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
+
+
 def transcribe_audio_via_backend(audio_bytes):
     try:
         with st.spinner("🎙️ Transcribing voice..."):
@@ -122,7 +124,7 @@ def send_user_message(user_text):
     for msg in st.session_state.chat_history_display:
         role = msg.get("role")
         content = msg.get("content", "").strip()
-        if not content or "❌" in content or "Backend error" in content:
+        if not content or "❌" in content or "Backend error" in content or "problem técnico" in content:
             continue
         sanitized_history.append({"role": str(role), "content": str(content)})
 
@@ -210,6 +212,7 @@ st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
+    # Zwraca pełne 10 podpowiedzi z bazy AI dla ucznia
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
