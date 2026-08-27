@@ -1,9 +1,8 @@
 import os
 import sys
-import io
 import requests
 
-# Dynamiczne wstrzyknięcie ścieżki projektu
+# Dynamiczne wstrzyknięcie ścieżki projektu do pamięci systemowej Pythona
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -13,7 +12,7 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.endpoints import router as api_router
 
-# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie
+# Automatyczna synchronizacja struktur bazodanowych w Neon.tech przez SSL przy starcie
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -27,8 +26,8 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 @app.post("/api/v1/transcribe", tags=["Audio core"])
 def transcribe_audio(file: UploadFile = File(...)):
     """
-    Bezpieczny i stabilny endpoint pośredniczący dla Groq Whisper.
-    Naprawia strukturę krotki binarnej, eliminując błąd 500 ze strony Groqa.
+    Bezpieczny endpoint pośredniczący dla Groq Whisper API.
+    Dopasowuje krotkę binarną pliku, usuwając błąd 500 ze strony Groqa.
     """
     if not settings.GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY is not configured on the backend.")
@@ -40,19 +39,19 @@ def transcribe_audio(file: UploadFile = File(...)):
         url = "https://groq.com"
         headers = {"Authorization": f"Bearer {settings.GROQ_API_KEY}"}
         
-        # POPRAWKA: Prawidłowy format krotki (Tuple) dla biblioteki requests.
-        # Pierwszy element to nazwa pliku z rozszerzeniem, drugi to bajty, trzeci to dokładny typ MIME.
+        # OFICJALNE FORMOWANIE PLIKU DLA REST API OPENAI/GROQ:
+        # Przekazujemy listę krotek zawierającą jawną nazwę pola, nazwę pliku, bajty oraz nagłówek typu MIME.
         files = [
             ('file', ('audio.webm', audio_bytes, 'audio/webm'))
         ]
         
-        # Parametry tekstowe formularza
+        # Metadane i wskazanie modelu transkrypcji chmurowej
         data = {
             "model": "whisper-large-v3",
             "language": "es"
         }
         
-        # Wysyłamy żądanie multipart/form-data do serwerów Groq
+        # Wysyłamy żądanie do zewnętrznej infrastruktury Groq Cloud
         response = requests.post(url, headers=headers, files=files, data=data, timeout=20)
         
         if response.status_code == 200:
