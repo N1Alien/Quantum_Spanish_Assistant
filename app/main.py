@@ -12,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie przez SSL
+# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -27,24 +27,23 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 async def transcribe_audio(file: UploadFile = File(...)):
     """
     Bezpieczny endpoint transkrypcji oparty o Google Gemini 2.5 Flash.
-    Przyjmuje surowy plik audio i za pomocą darmowego API zwraca czysty tekst.
+    Izoluje klucz API w parametrach query, aby kropki w kluczu nie niszczyły domeny.
     """
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if not gemini_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on the backend.")
         
     try:
-        # Odczytujemy surowe bajty audio przesłane ze Streamlita
         audio_bytes = await file.read()
-        
-        # Kodujemy strumień binarny do Base64 wymaganego przez Google REST API
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         
-        # Oficjalny adres URL Google Gemini generateContent
-        url = f"https://googleapis.com{gemini_key}"
+        # POPRAWKA: Czysty URL domeny bez wstrzykiwania zmiennej f-stringiem
+        url = "https://googleapis.com"
+        
+        # Przekazujemy klucz jako wydzielony słownik - requests sam zadba o bezpieczne kodowanie URL
+        query_params = {"key": gemini_key}
         headers = {"Content-Type": "application/json"}
         
-        # Konstruujemy strukturę payload dla modelu multimodalnego Gemini
         payload_data = {
             "contents": [{
                 "parts": [
@@ -55,16 +54,17 @@ async def transcribe_audio(file: UploadFile = File(...)):
                         }
                     },
                     {
-                        "text": "Transcribe this audio file accurately. Return ONLY the transcribed Spanish text, with no extra commentary or translation."
+                        "text": "Transcribe this audio file accurately. Return ONLY the transcribed Spanish text, with no extra commentary."
                     }
                 ]
             }]
         }
         
-        response = requests.post(url, headers=headers, json=payload_data, timeout=20)
+        # Wywołanie z jawnym parametrem params=query_params
+        response = requests.post(url, headers=headers, json=payload_data, params=query_params, timeout=20)
         
         if response.status_code == 200:
-            transcribed_text = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+            transcribed_text = response.json()["candidates"]["content"]["parts"]["text"].strip()
             return {"text": transcribed_text}
         else:
             raise HTTPException(status_code=response.status_code, detail=response.text)
@@ -74,9 +74,4 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 @app.get("/", tags=["Health Check"])
 def read_root():
-    return {
-        "status": "online",
-        "app_name": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT
-    }
+    return {"status": "online", "app_name": settings.PROJECT_NAME, "version": settings.VERSION}
