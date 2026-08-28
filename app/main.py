@@ -7,18 +7,16 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.endpoints import router as api_router
 
-# Dynamiczne wstrzyknięcie ścieżki projektu do pamięci Pythona
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Backend oparty w 100% o darmowe Google Gemini API.",
+    description="Backend oparty w 100% o darmowe Google Gemini API (Headers Auth).",
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
@@ -27,7 +25,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 async def transcribe_audio(file: UploadFile = File(...)):
     """
     Bezpieczny endpoint transkrypcji oparty o Google Gemini 2.5 Flash.
-    Izoluje klucz API w parametrach query, aby kropki w kluczu nie niszczyły domeny.
+    Wstrzykuje klucz przez nagłówek x-goog-api-key, chroniąc domenę przed kropkami.
     """
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if not gemini_key:
@@ -37,12 +35,14 @@ async def transcribe_audio(file: UploadFile = File(...)):
         audio_bytes = await file.read()
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         
-        # POPRAWKA: Czysty URL domeny bez wstrzykiwania zmiennej f-stringiem
+        # OSTATECZNA POPRAWKA: Czysty URL, całkowity brak klucza i znaków zapytania w linku!
         url = "https://googleapis.com"
         
-        # Przekazujemy klucz jako wydzielony słownik - requests sam zadba o bezpieczne kodowanie URL
-        query_params = {"key": gemini_key}
-        headers = {"Content-Type": "application/json"}
+        # Klucz przekazujemy przez bezpieczny nagłówek - eliminuje to błędy DNS na kropce
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": gemini_key
+        }
         
         payload_data = {
             "contents": [{
@@ -60,8 +60,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
             }]
         }
         
-        # Wywołanie z jawnym parametrem params=query_params
-        response = requests.post(url, headers=headers, json=payload_data, params=query_params, timeout=20)
+        # Wywołanie bez parametru params, czysty bezpieczny nagłówek HTTP
+        response = requests.post(url, headers=headers, json=payload_data, timeout=20)
         
         if response.status_code == 200:
             transcribed_text = response.json()["candidates"]["content"]["parts"]["text"].strip()
