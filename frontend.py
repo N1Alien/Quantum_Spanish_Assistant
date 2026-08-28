@@ -4,30 +4,15 @@ import requests
 import io
 import os
 import re
+import streamlit.components.v1 as components
 
-# Odczytujemy bazowy adres z konfiguracji Rendera (np. https://onrender.com)
-BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001")
-
-# Czyścimy adres na wypadek, gdyby wkleił się stary, pełny endpoint chatu
-BACKEND_BASE = BACKEND_BASE.replace("/api/v1/quantum-chat", "").rstrip("/")
-
-# Budujemy dwa całkowicie niezależne, poprawne adresy URL (Koniec błędów zniekształcenia domeny!)
+# Pobieramy adres URL backendu
+BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001").rstrip("/")
 FASTAPI_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
-TRANSCRIBE_URL = f"{BACKEND_BASE}/api/v1/transcribe"
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Speak into the microphone. Your language assistant is fully powered by Gemini Cloud.")
-
-# 🎙️ PRZYWRÓCONA ORYGINALNA REGULACJA MIKROFONU (Od 100 do 4000)
-mic_sensitivity = st.sidebar.slider(
-    "Microphone sensitivity",
-    min_value=100,
-    max_value=4000,
-    value=150,
-    step=50,
-    help="Lower value = more sensitive. Higher value = filters out background noise."
-)
+st.write("Click 'Start Recording' and speak. Your voice is transcribed instantly locally.")
 
 SYSTEM_INSTRUCTION = (
     "Eres un profesor nativo de español. Tu única tarea es mantener una conversación fluida. "
@@ -37,11 +22,10 @@ SYSTEM_INSTRUCTION = (
     "-> EN: (Traduce aquí las frases anteriores al inglés)\n\n"
     "PROMPTS:\n"
     "(Escribe exactamente 10 opciones reales y muy cortas de 2-4 palabras en ESPAÑOL para que el usuario responda a tu pregunta)\n"
-    "-> EN: (Traduce la opción 1 al inglés)\n"
+    "-> EN: (Traduce la opção 1 al inglés)\n"
     "(Siguiente opción en hispánico)\n"
     "-> EN: (Traduce la siguiente opción al inglés, hasta completar 10 pares)\n\n"
 )
-
 
 def normalize_prompt(text):
     clean = re.sub(r"^\d+[\.\)]\s*", "", text or "").strip()
@@ -49,25 +33,19 @@ def normalize_prompt(text):
     clean = clean.replace("**", "").strip()
     return clean[:120].rstrip() + ("..." if len(clean) > 120 else "")
 
-
 def parse_ai_prompts(assistant_text):
     if not assistant_text:
         return []
-
     match = re.search(r"PROMPTS:(.*)", assistant_text, re.DOTALL | re.IGNORECASE)
     if not match:
         return []
-
     prompts_block = match.group(1).strip()
     lines = [line.strip() for line in prompts_block.split("\n") if line.strip()]
-    
     dynamic_prompts = []
     current_es = None
-
     for line in lines:
         if line.upper().startswith("SPANISH:") or line.upper().startswith("PROMPTS:"):
             continue
-            
         if line.startswith("-> EN:"):
             en_translation = line.replace("-> EN:", "").strip()
             if current_es:
@@ -76,15 +54,12 @@ def parse_ai_prompts(assistant_text):
         else:
             if not re.match(r"^(?:en|english)\s*:", line, re.I):
                 current_es = normalize_prompt(line)
-
     return dynamic_prompts[:10]
-
 
 def build_dynamic_prompts(assistant_text=""):
     ai_prompts = parse_ai_prompts(assistant_text)
     if ai_prompts and len(ai_prompts) >= 2:
         return ai_prompts
-
     return [
         {"es": "Hola, mucho gusto.", "en": "Hello, nice to meet you."},
         {"es": "¿Cómo estás?", "en": "How are you?"},
@@ -98,89 +73,50 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
 
-
-def transcribe_audio_via_backend(audio_bytes):
-    try:
-        with st.spinner("🎙️ Transcribing voice..."):
-            files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
-            res = requests.post(TRANSCRIBE_URL, files=files, timeout=20)
-            if res.status_code == 200:
-                return res.json().get("text", "").strip()
-            else:
-                st.error(f"❌ Transcription Error: {res.status_code} - {res.text}")
-    except Exception as e:
-        st.error(f"❌ Failed to connect to transcription server: {str(e)}")
-    return ""
-
-
 def send_user_message(user_text):
     if not user_text or not user_text.strip():
         return
-
     text = user_text.strip()
     st.session_state.chat_history_display.append({"role": "user", "content": text})
-
     sanitized_history = []
     for msg in st.session_state.chat_history_display:
-        role = msg.get("role")
-        content = msg.get("content", "").strip()
-        if not content or "❌" in content or "Backend error" in content or "problem técnico" in content:
-            continue
-        sanitized_history.append({"role": str(role), "content": str(content)})
+        if msg.get("content") and "❌" not in msg.get("content"):
+            sanitized_history.append({"role": msg["role"], "content": msg["content"]})
 
-    payload = {
-        "message": text,
-        "system_instruction": SYSTEM_INSTRUCTION,
-        "chat_history": sanitized_history
-    }
-
+    payload = {"message": text, "system_instruction": SYSTEM_INSTRUCTION, "chat_history": sanitized_history}
     bot_response = ""
     with st.spinner("🧠 AI is processing your request..."):
         try:
-            response = requests.post(FASTAPI_URL, json=payload, timeout=30)
+            response = requests.post(FASTAPI_URL, json=payload, timeout=15)
             if response.status_code == 200:
-                data = response.json()
-                bot_response = data.get("response", "").strip()
-                
+                bot_response = response.json().get("response", "").strip()
                 if bot_response:
                     st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
             else:
-                st.error(f"❌ Backend error {response.status_code}: {response.text}")
+                st.error(f"❌ Backend error: {response.text}")
         except Exception as api_err:
             st.error(f"❌ Connection failed: {str(api_err)}")
 
     if bot_response and "❌" not in bot_response:
         spanish_block = ""
         match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", bot_response, re.DOTALL | re.IGNORECASE)
-        if match:
-            spanish_block = match.group(1).strip()
-        else:
-            spanish_block = bot_response
-
-        lines = spanish_block.split("\n")
-        clean_spanish_lines = []
-        for line in lines:
-            line_strip = line.strip()
-            if line_strip and not line_strip.startswith("-> EN:") and not line_strip.startswith("("):
-                clean_spanish_lines.append(line_strip)
-
-        clean_audio_text = " ".join(clean_spanish_lines)
+        spanish_block = match.group(1).strip() if match else bot_response
+        clean_lines = [l.strip() for l in spanish_block.split("\n") if l.strip() and not l.strip().startswith("-> EN:")]
+        clean_audio_text = " ".join(clean_lines)
         if clean_audio_text:
             try:
                 tts = gTTS(text=clean_audio_text, lang='es')
                 tts.save("/tmp/web_response.mp3")
                 st.session_state.play_audio = True
-            except Exception as tts_err:
-                st.error(f"⚠️ Audio failed: {str(tts_err)}")
-
+            except Exception:
+                pass
 
 if "chat_history_display" not in st.session_state:
     st.session_state.chat_history_display = []
-
 if "play_audio" not in st.session_state:
     st.session_state.play_audio = False
 
-st.subheader("🎛️ Microphone and Conversation")
+st.subheader("🎛️ Local Voice Recognition Window")
 
 if st.button("🔄 Reset conversation"):
     if os.path.exists("/tmp/web_response.mp3"):
@@ -188,61 +124,87 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
-audio_file = st.audio_input("Click the microphone icon to start speaking in Spanish", key="microphone_input")
-
-if audio_file is not None:
-    audio_bytes = audio_file.read()
+# Ultra-szybki komponent HTML5 do natychmiastowej lokalnej transkrypcji mowy (Bypass Throttling)
+html_speech_component = """
+<div style="font-family: sans-serif; text-align: center; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa;">
+    <button id="recordBtn" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer;">🎙️ Click and Speak Spanish</button>
+    <p id="statusMsg" style="color: #666; font-size: 13px; margin-top: 8px;">Microphone is idle.</p>
+</div>
+<script>
+    const recordBtn = document.getElementById('recordBtn');
+    const statusMsg = document.getElementById('statusMsg');
     
-    file_cutoff = int(mic_sensitivity) * 3
-    if len(audio_bytes) > file_cutoff:
-        user_text = transcribe_audio_via_backend(audio_bytes)
-        
-        if user_text and ("last_processed" not in st.session_state or st.session_state.last_processed != user_text):
-            st.session_state.last_processed = user_text
-            send_user_message(user_text)
-            st.rerun()
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        statusMsg.innerText = "❌ Web Speech API is not supported in this browser. Use Chrome/Edge.";
+        recordBtn.disabled = true;
+    } else {
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'es-ES';
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
 
-latest_assistant = ""
-for msg in reversed(st.session_state.chat_history_display):
-    if msg["role"] == "assistant":
-        latest_assistant = msg["content"]
-        break
+        recordBtn.addEventListener('click', () => {
+            recognition.start();
+            statusMsg.innerText = "🔊 Listening... Speak now!";
+            recordBtn.style.background = "#22c55e";
+        });
 
+        recognition.addEventListener('result', (e) => {
+            const transcript = e.results[0][0].transcript;
+            statusMsg.innerText = "✅ Captured: " + transcript;
+            recordBtn.style.background = "#ef4444";
+            
+            // Wysyłamy tekst bezpośrednio do Streamlit
+            window.parent.postMessage({
+                type: 'streamlit:set_widget_value',
+                key: 'hidden_speech_input',
+                value: transcript
+            }, '*');
+        });
+
+        recognition.addEventListener('speechend', () => { recognition.stop(); });
+        recognition.addEventListener('error', (err) => {
+            statusMsg.innerText = "🔕 Error occurred: " + err.error;
+            recordBtn.style.background = "#ef4444";
+        });
+    }
+</script>
+"""
+
+# Ukryty widżet odbierający natychmiastowy tekst z przeglądarki
+if "hidden_speech_input" not in st.session_state:
+    st.session_state.hidden_speech_input = ""
+
+components.html(html_speech_component, height=100)
+
+# Reagujemy na przesłany z przeglądarki tekst
+current_speech = st.text_input("Captured voice text (editable):", key="hidden_speech_input")
+if current_speech and ("last_sent_speech" not in st.session_state or st.session_state.last_sent_speech != current_speech):
+    st.session_state.last_sent_speech = current_speech
+    send_user_message(current_speech)
+    st.rerun()
+
+latest_assistant = st.session_state.chat_history_display[-1]["content"] if st.session_state.chat_history_display and st.session_state.chat_history_display[-1]["role"] == "assistant" else ""
 st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
 
 with st.sidebar:
     st.header("💡 Suggested responses")
-    # Zwraca pełne 10 podpowiedzi z bazy AI dla ucznia
     for idx, prompt in enumerate(st.session_state.current_prompts[:10], start=1):
         if st.button(f"{idx}. {prompt['es']} — {prompt['en']}", key=f"suggestion_{idx}", use_container_width=True):
             send_user_message(prompt["es"])
             st.rerun()
 
 for msg in reversed(st.session_state.chat_history_display):
-    content = msg.get("content", "")
-    role = msg.get("role")
-    
-    if not content or "❌" in content or "Backend error" in content:
-        continue
-        
-    if role == "user":
-        st.info(f"**You:** {content}")
-    elif role == "assistant":
-        spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", content, re.DOTALL | re.IGNORECASE)
-        
-        with st.chat_message("assistant"):
-            if spanish_match:
-                st.markdown("🗣️ *Conversation:*")
-                raw_text = spanish_match.group(1).strip()
-                formatted_lines = []
-                for line in raw_text.split("\n"):
-                    line_strip = line.strip()
-                    if line_strip.startswith("-> EN:"):
-                        clean_en = line_strip.replace("-> EN:", "").strip()
-                        formatted_lines.append(f":orange[{clean_en}]")
-                    elif line_strip:
-                        formatted_lines.append(f"{line_strip}")
-                st.markdown("\n\n".join(formatted_lines))
+    if msg.get("content") and "❌" not in msg.get("content"):
+        if msg["role"] == "user":
+            st.info(f"**You:** {msg['content']}")
+        else:
+            spanish_match = re.search(r"SPANISH:(.*?)(PROMPTS:|$)", msg["content"], re.DOTALL | re.IGNORECASE)
+            with st.chat_message("assistant"):
+                raw_text = spanish_match.group(1).strip() if spanish_match else msg["content"]
+                formatted = [f":orange[{l.replace('-> EN:', '').strip()}]" if l.strip().startswith("-> EN:") else l.strip() for l in raw_text.split("\n") if l.strip()]
+                st.markdown("\n\n".join(formatted))
 
 if os.path.exists("/tmp/web_response.mp3") and st.session_state.get("play_audio", False):
     st.audio("/tmp/web_response.mp3", format="audio/mp3", autoplay=True)
