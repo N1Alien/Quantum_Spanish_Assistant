@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict
-import requests
+import google.generativeai as genai
 import os
 
 router = APIRouter()
@@ -27,37 +27,38 @@ def process_quantum_chat(payload: SpanishChatRequest):
             response="SPANISH:\nError: GEMINI_API_KEY no está configurado.\n-> EN: Error: GEMINI_API_KEY is missing."
         )
 
-    contents = []
-    for msg in payload.chat_history:
-        role = "model" if msg.get("role") == "assistant" else "user"
-        content = msg.get("content", "").strip()
-        if content and "❌" not in content and "Backend error" not in content and "problem técnico" not in content:
-            contents.append({"role": role, "parts": [{"text": content}]})
-
-    contents.insert(0, {
-        "role": "user",
-        "parts": [{"text": f"[SYSTEM INSTRUCTION - ACT AS THIS PROFILE]:\n{payload.system_instruction}"}]
-    })
-
-    # Bezpieczne kodowanie pełnego adresu URL chatu
-    raw_url = f"https://googleapis.com{gemini_key.strip()}"
-    url = requests.utils.requote_uri(raw_url)
-    
-    headers = {"Content-Type": "application/json"}
-    payload_data = {"contents": contents}
-
     try:
-        response = requests.post(url, headers=headers, json=payload_data, timeout=20)
-        if response.status_code == 200:
-            ai_response = response.json()["candidates"]["content"]["parts"]["text"].strip()
-            return SpanishChatResponse(quantum_style_applied="Normal", response=ai_response)
-        else:
-            return SpanishChatResponse(
-                quantum_style_applied="Normal",
-                response=f"SPANISH:\nError Gemini ({response.status_code}): {response.text}\n-> EN: Gemini API Error."
-            )
+        # Konfiguracja oficjalnego SDK Google dla chatu
+        genai.configure(api_key=gemini_key.strip())
+        
+        # Rekonstrukcja historii dla formatu akceptowanego przez SDK Gemini
+        # Format: {"role": "user"|"model", "parts": ["..."]}
+        history_contents = []
+        for msg in payload.chat_history:
+            role = "model" if msg.get("role") == "assistant" else "user"
+            content = msg.get("content", "").strip()
+            if content and "❌" not in content and "Backend error" not in content and "problem técnico" not in content:
+                history_contents.append({
+                    "role": role,
+                    "parts": [content]
+                })
+
+        # Uruchamiamy oficjalny model chatu z zachowaniem pełnego kontekstu i instrukcji systemowej
+        model = genai.GenerativeModel(
+            model_name="gemini-2.5-flash",
+            system_instruction=payload.system_instruction
+        )
+        
+        # Inicjalizujemy sesję chatu z wstrzykniętą historią
+        chat = model.start_chat(history=history_contents)
+        response = chat.send_message(payload.message.strip())
+        
+        return SpanishChatResponse(
+            quantum_style_applied="Normal",
+            response=response.text.strip()
+        )
     except Exception as e:
         return SpanishChatResponse(
             quantum_style_applied="Normal",
-            response=f"SPANISH:\nError de conexión: {str(e)}.\n-> EN: Connection error."
+            response=f"SPANISH:\nError de SDK Gemini: {str(e)}.\n-> EN: Gemini SDK error."
         )

@@ -8,14 +8,13 @@ sqlalchemy==2.0.35
 psycopg2-binary==2.9.9
 speechrecognition==3.10.4
 gTTS==2.5.3
+requests==2.32.2
 beautifulsoup4==4.12.3
 python-multipart
-
-# Dodajemy oficjalną paczkę requests dla potoku HTTP POST
-requests==2.32.2
-
-# Wymuszamy najnowszą wersję Streamlit
 streamlit>=1.42.0
+
+# Oficjalne SDK Google do stabilnej obsługi Gemini 2.5 Flash
+google-generativeai
 
 # Zestaw kwantowy
 pennylane>=0.39.0
