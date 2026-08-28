@@ -24,23 +24,19 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 async def transcribe_audio(file: UploadFile = File(...)):
     """
     Bezpieczny endpoint transkrypcji oparty o oficjalne Google GenerativeAI SDK.
-    Eliminuje błędy kodowania znaków specjalnych i kropki w adresach URL.
+    Używa najnowszego, aktywnego modelu gemini-3.6-flash.
     """
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if not gemini_key:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on the backend.")
         
     try:
-        # Konfiguracja oficjalnego klienta Google
         genai.configure(api_key=gemini_key.strip())
-        
-        # Odczytujemy surowe bajty przesłane ze Streamlita
         audio_bytes = await file.read()
         
-        # Wywołujemy model Gemini 2.5 Flash bezpośrednio przez SDK
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        # POPRAWKA: Przejście na aktualny, wspierany model produkcyjny
+        model = genai.GenerativeModel("gemini-3.6-flash")
         
-        # Oficjalny potok multimodalny: przekazujemy surowy słownik binarny
         response = model.generate_content([
             {
                 "mime_type": "audio/webm",

@@ -28,11 +28,8 @@ def process_quantum_chat(payload: SpanishChatRequest):
         )
 
     try:
-        # Konfiguracja oficjalnego SDK Google dla chatu
         genai.configure(api_key=gemini_key.strip())
         
-        # Rekonstrukcja historii dla formatu akceptowanego przez SDK Gemini
-        # Format: {"role": "user"|"model", "parts": ["..."]}
         history_contents = []
         for msg in payload.chat_history:
             role = "model" if msg.get("role") == "assistant" else "user"
@@ -43,13 +40,12 @@ def process_quantum_chat(payload: SpanishChatRequest):
                     "parts": [content]
                 })
 
-        # Uruchamiamy oficjalny model chatu z zachowaniem pełnego kontekstu i instrukcji systemowej
+        # POPRAWKA: Przejście na aktualny model dla generowania tekstu chatu
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.6-flash",
             system_instruction=payload.system_instruction
         )
         
-        # Inicjalizujemy sesję chatu z wstrzykniętą historią
         chat = model.start_chat(history=history_contents)
         response = chat.send_message(payload.message.strip())
         
