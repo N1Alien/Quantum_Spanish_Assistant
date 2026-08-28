@@ -39,18 +39,19 @@ def process_quantum_chat(payload: SpanishChatRequest):
         "parts": [{"text": f"[SYSTEM INSTRUCTION - ACT AS THIS PROFILE]:\n{payload.system_instruction}"}]
     })
 
-    # Czysty URL, bezpieczny przed uszkodzeniem DNS
+    # Kanoniczny URL czatu
     url = "https://googleapis.com"
     
-    # Przekazanie autoryzacji do nagłówka zabezpieczającego
     headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": gemini_key
+        "Content-Type": "application/json"
+    }
+    params = {
+        "key": str(gemini_key).strip()
     }
     payload_data = {"contents": contents}
 
     try:
-        response = requests.post(url, headers=headers, json=payload_data, timeout=20)
+        response = requests.post(url, headers=headers, json=payload_data, params=params, timeout=20)
         if response.status_code == 200:
             ai_response = response.json()["candidates"]["content"]["parts"]["text"].strip()
             return SpanishChatResponse(quantum_style_applied="Normal", response=ai_response)

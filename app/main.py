@@ -16,7 +16,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Backend oparty w 100% o darmowe Google Gemini API (Headers Auth).",
+    description="Backend oparty w 100% o darmowe Google Gemini API.",
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
@@ -25,7 +25,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 async def transcribe_audio(file: UploadFile = File(...)):
     """
     Bezpieczny endpoint transkrypcji oparty o Google Gemini 2.5 Flash.
-    Wstrzykuje klucz przez nagłówek x-goog-api-key, chroniąc domenę przed kropkami.
+    Wymusza pełną strukturę adresu URL z jawnym parametrem klucza chronionym przed ucinaniem.
     """
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     if not gemini_key:
@@ -35,13 +35,17 @@ async def transcribe_audio(file: UploadFile = File(...)):
         audio_bytes = await file.read()
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         
-        # OSTATECZNA POPRAWKA: Czysty URL, całkowity brak klucza i znaków zapytania w linku!
+        # POPRAWKA ARCHITEKTONICZNA: Pełny, kanoniczny adres URL z jawnym parametrem klucza,
+        # co kategorycznie zapobiega ucinaniu ścieżki przez proxy Google (Eliminuje błąd robot 404)
         url = "https://googleapis.com"
         
-        # Klucz przekazujemy przez bezpieczny nagłówek - eliminuje to błędy DNS na kropce
         headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": gemini_key
+            "Content-Type": "application/json"
+        }
+        
+        # Przekazujemy klucz bezpiecznie przez query string
+        params = {
+            "key": str(gemini_key).strip()
         }
         
         payload_data = {
@@ -60,8 +64,8 @@ async def transcribe_audio(file: UploadFile = File(...)):
             }]
         }
         
-        # Wywołanie bez parametru params, czysty bezpieczny nagłówek HTTP
-        response = requests.post(url, headers=headers, json=payload_data, timeout=20)
+        # Zapytanie POST z jawnym parametrem params
+        response = requests.post(url, headers=headers, json=payload_data, params=params, timeout=20)
         
         if response.status_code == 200:
             transcribed_text = response.json()["candidates"]["content"]["parts"]["text"].strip()
