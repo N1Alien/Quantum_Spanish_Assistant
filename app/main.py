@@ -1,61 +1,30 @@
 import os
 import sys
-from fastapi import FastAPI, UploadFile, File, HTTPException
-import google.generativeai as genai
+from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.endpoints import router as api_router
 
-# Dynamiczne wstrzyknięcie ścieżki projektu do pamięci Pythona
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie
+# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie przez SSL
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Backend oparty w 100% o oficjalne Google Gemini SDK.",
+    description="Zoptymalizowany, szybki backend chmurowy oparty o Google Gemini SDK.",
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-@app.post("/api/v1/transcribe", tags=["Audio core"])
-async def transcribe_audio(file: UploadFile = File(...)):
-    """
-    Bezpieczny endpoint transkrypcji oparty o oficjalne Google GenerativeAI SDK.
-    Eliminuje błędy ucinania URL i kropki w adresach chmurowych.
-    """
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if not gemini_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on the backend.")
-        
-    try:
-        # Konfiguracja oficjalnego klienta Google
-        genai.configure(api_key=gemini_key.strip())
-        
-        # Odczytujemy surowe bajty przesłane ze Streamlita
-        audio_bytes = await file.read()
-        
-        # Oficjalny, aktywny model produkcyjny Google
-        model = genai.GenerativeModel("gemini-3.6-flash")
-        
-        # Multimodalny potok: Google samo dba o bezpieczne przesłanie strumienia binarnego
-        response = model.generate_content([
-            {
-                "mime_type": "audio/webm",
-                "data": audio_bytes
-            },
-            "Transcribe this audio file accurately. Return ONLY the transcribed Spanish text, with no extra commentary or translation."
-        ])
-        
-        return {"text": response.text.strip()}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Google Gemini Audio SDK failed: {str(e)}")
-
 @app.get("/", tags=["Health Check"])
 def read_root():
-    return {"status": "online", "app_name": settings.PROJECT_NAME, "version": settings.VERSION}
+    return {
+        "status": "online",
+        "app_name": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT
+    }
