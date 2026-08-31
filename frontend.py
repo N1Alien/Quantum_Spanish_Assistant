@@ -6,13 +6,13 @@ import os
 import re
 import streamlit.components.v1 as components
 
-# Pobieramy adres URL backendu
+# Pobieramy poprawny adres URL backendu z Rendera
 BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001").rstrip("/")
 FASTAPI_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Click 'Start Recording' and speak. Your voice is transcribed instantly locally.")
+st.write("Click the microphone button and start speaking Spanish. Your voice is transcribed instantly.")
 
 SYSTEM_INSTRUCTION = (
     "Eres un profesor nativo de español. Tu única tarea es mantener una conversación fluida. "
@@ -22,16 +22,18 @@ SYSTEM_INSTRUCTION = (
     "-> EN: (Traduce aquí las frases anteriores al inglés)\n\n"
     "PROMPTS:\n"
     "(Escribe exactamente 10 opciones reales y muy cortas de 2-4 palabras en ESPAÑOL para que el usuario responda a tu pregunta)\n"
-    "-> EN: (Traduce la opção 1 al inglés)\n"
+    "-> EN: (Traduce la opción 1 al inglés)\n"
     "(Siguiente opción en hispánico)\n"
     "-> EN: (Traduce la siguiente opción al inglés, hasta completar 10 pares)\n\n"
 )
+
 
 def normalize_prompt(text):
     clean = re.sub(r"^\d+[\.\)]\s*", "", text or "").strip()
     clean = re.sub(r"^[\-•*\s>]+", "", clean)
     clean = clean.replace("**", "").strip()
     return clean[:120].rstrip() + ("..." if len(clean) > 120 else "")
+
 
 def parse_ai_prompts(assistant_text):
     if not assistant_text:
@@ -56,6 +58,7 @@ def parse_ai_prompts(assistant_text):
                 current_es = normalize_prompt(line)
     return dynamic_prompts[:10]
 
+
 def build_dynamic_prompts(assistant_text=""):
     ai_prompts = parse_ai_prompts(assistant_text)
     if ai_prompts and len(ai_prompts) >= 2:
@@ -73,21 +76,28 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
 
+
 def send_user_message(user_text):
     if not user_text or not user_text.strip():
         return
     text = user_text.strip()
     st.session_state.chat_history_display.append({"role": "user", "content": text})
+    
     sanitized_history = []
     for msg in st.session_state.chat_history_display:
-        if msg.get("content") and "❌" not in msg.get("content"):
+        if msg.get("content") and "❌" not in msg.get("content") and "failed" not in msg.get("content"):
             sanitized_history.append({"role": msg["role"], "content": msg["content"]})
 
-    payload = {"message": text, "system_instruction": SYSTEM_INSTRUCTION, "chat_history": sanitized_history}
+    payload = {
+        "message": text,
+        "system_instruction": SYSTEM_INSTRUCTION,
+        "chat_history": sanitized_history
+    }
+    
     bot_response = ""
-    with st.spinner("🧠 AI is processing your request..."):
+    with st.spinner("🧠 Gemini AI is processing your request..."):
         try:
-            response = requests.post(FASTAPI_URL, json=payload, timeout=15)
+            response = requests.post(FASTAPI_URL, json=payload, timeout=25)
             if response.status_code == 200:
                 bot_response = response.json().get("response", "").strip()
                 if bot_response:
@@ -111,12 +121,13 @@ def send_user_message(user_text):
             except Exception:
                 pass
 
+
 if "chat_history_display" not in st.session_state:
     st.session_state.chat_history_display = []
 if "play_audio" not in st.session_state:
     st.session_state.play_audio = False
 
-st.subheader("🎛️ Local Voice Recognition Window")
+st.subheader("🎛️ Microphone Control")
 
 if st.button("🔄 Reset conversation"):
     if os.path.exists("/tmp/web_response.mp3"):
@@ -124,11 +135,11 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
-# Ultra-szybki komponent HTML5 do natychmiastowej lokalnej transkrypcji mowy (Bypass Throttling)
+# Inteligentny komponent HTML5 wywołujący natywne Web Speech API (Bypass CPU Throttling)
 html_speech_component = """
-<div style="font-family: sans-serif; text-align: center; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa;">
-    <button id="recordBtn" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 20px; font-weight: bold; cursor: pointer;">🎙️ Click and Speak Spanish</button>
-    <p id="statusMsg" style="color: #666; font-size: 13px; margin-top: 8px;">Microphone is idle.</p>
+<div style="font-family: sans-serif; text-align: center; padding: 15px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+    <button id="recordBtn" style="background: #ef4444; color: white; border: none; padding: 12px 28px; border-radius: 30px; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.4);">🎙️ Click and Speak Spanish</button>
+    <p id="statusMsg" style="color: #64748b; font-size: 13px; margin-top: 10px; font-weight: 500;">Microphone is ready.</p>
 </div>
 <script>
     const recordBtn = document.getElementById('recordBtn');
@@ -136,8 +147,9 @@ html_speech_component = """
     
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-        statusMsg.innerText = "❌ Web Speech API is not supported in this browser. Use Chrome/Edge.";
+        statusMsg.innerText = "❌ Web Speech API is not supported in this browser. Please use Google Chrome or Microsoft Edge.";
         recordBtn.disabled = true;
+        recordBtn.style.background = "#cbd5e1";
     } else {
         const recognition = new SpeechRecognition();
         recognition.lang = 'es-ES';
@@ -145,17 +157,23 @@ html_speech_component = """
         recognition.maxAlternatives = 1;
 
         recordBtn.addEventListener('click', () => {
-            recognition.start();
-            statusMsg.innerText = "🔊 Listening... Speak now!";
-            recordBtn.style.background = "#22c55e";
+            try {
+                recognition.start();
+                statusMsg.innerText = "🔊 Listening... Speak now!";
+                recordBtn.style.background = "#22c55e";
+                recordBtn.style.boxShadow = "0 4px 6px -1px rgba(34, 197, 94, 0.4)";
+            } catch(e) {
+                recognition.stop();
+            }
         });
 
         recognition.addEventListener('result', (e) => {
             const transcript = e.results[0][0].transcript;
             statusMsg.innerText = "✅ Captured: " + transcript;
             recordBtn.style.background = "#ef4444";
+            recordBtn.style.boxShadow = "0 4px 6px -1px rgba(239, 68, 68, 0.4)";
             
-            // Wysyłamy tekst bezpośrednio do Streamlit
+            // Przekazujemy tekst bezpośrednio do ukrytego widgetu Streamlit
             window.parent.postMessage({
                 type: 'streamlit:set_widget_value',
                 key: 'hidden_speech_input',
@@ -165,20 +183,19 @@ html_speech_component = """
 
         recognition.addEventListener('speechend', () => { recognition.stop(); });
         recognition.addEventListener('error', (err) => {
-            statusMsg.innerText = "🔕 Error occurred: " + err.error;
+            statusMsg.innerText = "🔕 Echo or silence detected. Try clicking again.";
             recordBtn.style.background = "#ef4444";
         });
     }
 </script>
 """
 
-# Ukryty widżet odbierający natychmiastowy tekst z przeglądarki
 if "hidden_speech_input" not in st.session_state:
     st.session_state.hidden_speech_input = ""
 
-components.html(html_speech_component, height=100)
+components.html(html_speech_component, height=120)
 
-# Reagujemy na przesłany z przeglądarki tekst
+# Nasłuchiwanie zmian wartości w komponencie JS
 current_speech = st.text_input("Captured voice text (editable):", key="hidden_speech_input")
 if current_speech and ("last_sent_speech" not in st.session_state or st.session_state.last_sent_speech != current_speech):
     st.session_state.last_sent_speech = current_speech
