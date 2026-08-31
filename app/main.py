@@ -1,6 +1,7 @@
 import os
 import sys
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
+import google.generativeai as genai
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.endpoints import router as api_router
@@ -9,22 +10,44 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-# Automatyczne tworzenie tabel PostgreSQL w Neon.tech przy starcie przez SSL
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Zoptymalizowany, szybki backend chmurowy oparty o Google Gemini SDK.",
+    description="Backend z obsługą audio oparty o oficjalne Google Gemini SDK.",
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+@app.post("/api/v1/transcribe", tags=["Audio core"])
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Endpoint transkrypcji audio przez oficjalne Google GenerativeAI SDK (gemini-3.6-flash).
+    """
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if not gemini_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured on the backend.")
+        
+    try:
+        genai.configure(api_key=gemini_key.strip())
+        audio_bytes = await file.read()
+        
+        model = genai.GenerativeModel("gemini-3.6-flash")
+        
+        response = model.generate_content([
+            {
+                "mime_type": "audio/webm",
+                "data": audio_bytes
+            },
+            "Transcribe this audio file accurately. Return ONLY the transcribed Spanish text, with no extra commentary or translation."
+        ])
+        
+        return {"text": response.text.strip()}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Google Gemini Audio SDK failed: {str(e)}")
+
 @app.get("/", tags=["Health Check"])
 def read_root():
-    return {
-        "status": "online",
-        "app_name": settings.PROJECT_NAME,
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT
-    }
+    return {"status": "online", "app_name": settings.PROJECT_NAME, "version": settings.VERSION}

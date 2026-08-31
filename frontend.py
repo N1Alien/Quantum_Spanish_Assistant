@@ -4,15 +4,14 @@ import requests
 import io
 import os
 import re
-import streamlit.components.v1 as components
 
-# Pobieramy poprawny adres URL backendu z Rendera
 BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001").rstrip("/")
-FASTAPI_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
+FASTAPI_CHAT_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
+FASTAPI_TRANSCRIBE_URL = f"{BACKEND_BASE}/api/v1/transcribe"
 
 st.set_page_config(page_title="Quantum Spanish Assistant", page_icon="⚛️", layout="centered")
 st.title("⚛️ Hybrid Quantum Spanish Assistant")
-st.write("Click the microphone button and start speaking Spanish. Your voice is transcribed instantly.")
+st.write("Record your voice using the native recorder below to practice Spanish.")
 
 SYSTEM_INSTRUCTION = (
     "Eres un profesor nativo de español. Tu única tarea es mantener una conversación fluida. "
@@ -27,13 +26,11 @@ SYSTEM_INSTRUCTION = (
     "-> EN: (Traduce la siguiente opción al inglés, hasta completar 10 pares)\n\n"
 )
 
-
 def normalize_prompt(text):
     clean = re.sub(r"^\d+[\.\)]\s*", "", text or "").strip()
     clean = re.sub(r"^[\-•*\s>]+", "", clean)
     clean = clean.replace("**", "").strip()
     return clean[:120].rstrip() + ("..." if len(clean) > 120 else "")
-
 
 def parse_ai_prompts(assistant_text):
     if not assistant_text:
@@ -58,7 +55,6 @@ def parse_ai_prompts(assistant_text):
                 current_es = normalize_prompt(line)
     return dynamic_prompts[:10]
 
-
 def build_dynamic_prompts(assistant_text=""):
     ai_prompts = parse_ai_prompts(assistant_text)
     if ai_prompts and len(ai_prompts) >= 2:
@@ -76,7 +72,6 @@ def build_dynamic_prompts(assistant_text=""):
         {"es": "Tengo una pregunta.", "en": "I have a question."}
     ]
 
-
 def send_user_message(user_text):
     if not user_text or not user_text.strip():
         return
@@ -85,19 +80,14 @@ def send_user_message(user_text):
     
     sanitized_history = []
     for msg in st.session_state.chat_history_display:
-        if msg.get("content") and "❌" not in msg.get("content") and "failed" not in msg.get("content"):
+        if msg.get("content") and "❌" not in msg.get("content"):
             sanitized_history.append({"role": msg["role"], "content": msg["content"]})
 
-    payload = {
-        "message": text,
-        "system_instruction": SYSTEM_INSTRUCTION,
-        "chat_history": sanitized_history
-    }
-    
+    payload = {"message": text, "system_instruction": SYSTEM_INSTRUCTION, "chat_history": sanitized_history}
     bot_response = ""
-    with st.spinner("🧠 Gemini AI is processing your request..."):
+    with st.spinner("🧠 AI is processing your request..."):
         try:
-            response = requests.post(FASTAPI_URL, json=payload, timeout=25)
+            response = requests.post(FASTAPI_CHAT_URL, json=payload, timeout=30)
             if response.status_code == 200:
                 bot_response = response.json().get("response", "").strip()
                 if bot_response:
@@ -121,13 +111,12 @@ def send_user_message(user_text):
             except Exception:
                 pass
 
-
 if "chat_history_display" not in st.session_state:
     st.session_state.chat_history_display = []
 if "play_audio" not in st.session_state:
     st.session_state.play_audio = False
-
-st.subheader("🎛️ Microphone Control")
+if "last_audio_signature" not in st.session_state:
+    st.session_state.last_audio_signature = None
 
 if st.button("🔄 Reset conversation"):
     if os.path.exists("/tmp/web_response.mp3"):
@@ -135,72 +124,27 @@ if st.button("🔄 Reset conversation"):
     st.session_state.clear()
     st.rerun()
 
-# Inteligentny komponent HTML5 wywołujący natywne Web Speech API (Bypass CPU Throttling)
-html_speech_component = """
-<div style="font-family: sans-serif; text-align: center; padding: 15px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-    <button id="recordBtn" style="background: #ef4444; color: white; border: none; padding: 12px 28px; border-radius: 30px; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.4);">🎙️ Click and Speak Spanish</button>
-    <p id="statusMsg" style="color: #64748b; font-size: 13px; margin-top: 10px; font-weight: 500;">Microphone is ready.</p>
-</div>
-<script>
-    const recordBtn = document.getElementById('recordBtn');
-    const statusMsg = document.getElementById('statusMsg');
-    
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        statusMsg.innerText = "❌ Web Speech API is not supported in this browser. Please use Google Chrome or Microsoft Edge.";
-        recordBtn.disabled = true;
-        recordBtn.style.background = "#cbd5e1";
-    } else {
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'es-ES';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
+# Oryginalny widok nagrywania Streamlit
+audio_file = st.audio_input("Record a voice message")
 
-        recordBtn.addEventListener('click', () => {
-            try {
-                recognition.start();
-                statusMsg.innerText = "🔊 Listening... Speak now!";
-                recordBtn.style.background = "#22c55e";
-                recordBtn.style.boxShadow = "0 4px 6px -1px rgba(34, 197, 94, 0.4)";
-            } catch(e) {
-                recognition.stop();
-            }
-        });
-
-        recognition.addEventListener('result', (e) => {
-            const transcript = e.results[0][0].transcript;
-            statusMsg.innerText = "✅ Captured: " + transcript;
-            recordBtn.style.background = "#ef4444";
-            recordBtn.style.boxShadow = "0 4px 6px -1px rgba(239, 68, 68, 0.4)";
-            
-            // Przekazujemy tekst bezpośrednio do ukrytego widgetu Streamlit
-            window.parent.postMessage({
-                type: 'streamlit:set_widget_value',
-                key: 'hidden_speech_input',
-                value: transcript
-            }, '*');
-        });
-
-        recognition.addEventListener('speechend', () => { recognition.stop(); });
-        recognition.addEventListener('error', (err) => {
-            statusMsg.innerText = "🔕 Echo or silence detected. Try clicking again.";
-            recordBtn.style.background = "#ef4444";
-        });
-    }
-</script>
-"""
-
-if "hidden_speech_input" not in st.session_state:
-    st.session_state.hidden_speech_input = ""
-
-components.html(html_speech_component, height=120)
-
-# Nasłuchiwanie zmian wartości w komponencie JS
-current_speech = st.text_input("Captured voice text (editable):", key="hidden_speech_input")
-if current_speech and ("last_sent_speech" not in st.session_state or st.session_state.last_sent_speech != current_speech):
-    st.session_state.last_sent_speech = current_speech
-    send_user_message(current_speech)
-    st.rerun()
+if audio_file is not None:
+    audio_bytes = audio_file.getvalue()
+    current_signature = hash(audio_bytes)
+    if current_signature != st.session_state.last_audio_signature:
+        st.session_state.last_audio_signature = current_signature
+        with st.spinner("🎙️ Transcribing audio..."):
+            try:
+                files = {"file": ("audio.webm", audio_bytes, "audio/webm")}
+                res = requests.post(FASTAPI_TRANSCRIBE_URL, files=files, timeout=30)
+                if res.status_code == 200:
+                    transcribed_text = res.json().get("text", "").strip()
+                    if transcribed_text:
+                        send_user_message(transcribed_text)
+                        st.rerun()
+                else:
+                    st.error(f"❌ Transcription error: {res.text}")
+            except Exception as e:
+                st.error(f"❌ Failed to connect to transcription server: {str(e)}")
 
 latest_assistant = st.session_state.chat_history_display[-1]["content"] if st.session_state.chat_history_display and st.session_state.chat_history_display[-1]["role"] == "assistant" else ""
 st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
