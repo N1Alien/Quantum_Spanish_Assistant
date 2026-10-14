@@ -1,5 +1,7 @@
 # Hybrid Quantum Spanish Assistant (Full-Stack AI System)
 
+[**Try the live app**](https://quantum-spanish-frontend.onrender.com)
+
 A cutting-edge, production-grade distributed system designed for intelligent Spanish language learning. The application fuses **Quantum Computing simulation (PennyLane + PyTorch)** on local GPU architecture with an autonomous **RAG (Retrieval-Augmented Generation)** pipeline. Upon startup, the system automatically scrapes grammar and vocabulary data from the web, allowing local LLM models to serve as highly accurate language tutors without data hallucinations.
 
 ## 🛠️ Tech Stack & Infrastructure

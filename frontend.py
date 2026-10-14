@@ -141,8 +141,17 @@ if audio_file is not None:
                     if transcribed_text:
                         send_user_message(transcribed_text)
                         st.rerun()
+                    else:
+                        st.warning("No speech was recognized. Please try recording again.")
                 else:
-                    st.error(f"❌ Transcription error: {res.text}")
+                    try:
+                        error_detail = res.json().get("detail", "")
+                    except ValueError:
+                        error_detail = ""
+                    if res.status_code == 429:
+                        st.warning(error_detail or "The transcription service is busy. Please wait briefly and try again.")
+                    else:
+                        st.error(error_detail or f"Transcription failed (HTTP {res.status_code}). Please try again.")
             except Exception as e:
                 st.error(f"❌ Failed to connect to transcription server: {str(e)}")
 

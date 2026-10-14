@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict
-import google.generativeai as genai
-import os
+from groq import Groq, RateLimitError
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -19,45 +19,39 @@ class SpanishChatResponse(BaseModel):
 def process_quantum_chat(payload: SpanishChatRequest):
     if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Tekst użytkownika nie może być pusty.")
-    
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if not gemini_key:
-        return SpanishChatResponse(
-            quantum_style_applied="Normal",
-            response="SPANISH:\nError: GEMINI_API_KEY no está configurado.\n-> EN: Error: GEMINI_API_KEY is missing."
-        )
+
+    groq_key = settings.GROQ_API_KEY.strip()
+    if not groq_key:
+        raise HTTPException(status_code=503, detail="AI chat is not configured: GROQ_API_KEY is missing.")
 
     try:
-        # Konfiguracja oficjalnego SDK Google dla chatu
-        genai.configure(api_key=gemini_key.strip())
-        
-        # Rekonstrukcja historii dla formatu akceptowanego przez SDK Gemini
-        history_contents = []
-        for msg in payload.chat_history:
-            role = "model" if msg.get("role") == "assistant" else "user"
+        messages = [{"role": "system", "content": payload.system_instruction}]
+        history = payload.chat_history
+        # The frontend includes the current user message in its history; send it once.
+        if history and history[-1].get("role") == "user" and history[-1].get("content", "").strip() == payload.message.strip():
+            history = history[:-1]
+        for msg in history:
+            role = msg.get("role")
             content = msg.get("content", "").strip()
-            if content and "❌" not in content and "Backend error" not in content and "problem técnico" not in content:
-                history_contents.append({
-                    "role": role,
-                    "parts": [content]
-                })
+            if role in {"user", "assistant"} and content and "❌" not in content and "Backend error" not in content and "problem técnico" not in content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": payload.message.strip()})
 
-        # Uruchamiamy model chatu z zachowaniem pełnego kontekstu i instrukcji systemowej przez SDK
-        model = genai.GenerativeModel(
-            model_name="gemini-3.6-flash",
-            system_instruction=payload.system_instruction
-        )
-        
-        # Inicjalizujemy oficjalną sesję chatu z wstrzykniętą historią i wysyłamy wiadomość użytkownika
-        chat = model.start_chat(history=history_contents)
-        response = chat.send_message(payload.message.strip())
-        
+        with Groq(api_key=groq_key) as client:
+            completion = client.chat.completions.create(
+                model=settings.GROQ_MODEL,
+                messages=messages,
+            )
+        answer = completion.choices[0].message.content or ""
+        if not answer.strip():
+            raise HTTPException(status_code=502, detail="The AI returned an empty response. Please try again.")
         return SpanishChatResponse(
             quantum_style_applied="Normal",
-            response=response.text.strip()
+            response=answer.strip()
         )
+    except RateLimitError as e:
+        raise HTTPException(status_code=429, detail="The AI service is busy or its request limit was reached. Please wait briefly and try again.") from e
+    except HTTPException:
+        raise
     except Exception as e:
-        return SpanishChatResponse(
-            quantum_style_applied="Normal",
-            response=f"SPANISH:\nError de SDK Gemini: {str(e)}.\n-> EN: Gemini SDK error."
-        )
+        raise HTTPException(status_code=502, detail="The AI chat request failed. Please try again shortly.") from e
