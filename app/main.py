@@ -54,9 +54,16 @@ async def transcribe_audio(file: UploadFile = File(...)):
             raise HTTPException(status_code=422, detail="No Spanish speech was detected. Please try recording again.")
         return {"text": text}
     except RateLimitError as e:
+        retry_after = e.response.headers.get("retry-after") if e.response else None
+        provider_error = e.body.get("error", {}) if isinstance(e.body, dict) else {}
+        provider_message = provider_error.get("message", "") if isinstance(provider_error, dict) else ""
+        logger.warning("Groq transcription rate limit: %s", provider_message or "no provider detail")
+        detail = "Groq transcription limit reached. Check the Groq Console Limits page."
+        if retry_after:
+            detail += f" Retry after {retry_after} seconds."
         raise HTTPException(
             status_code=429,
-            detail="The transcription service is busy or its request limit was reached. Please wait briefly and try again.",
+            detail=detail,
         ) from e
     except HTTPException:
         raise
