@@ -5,7 +5,17 @@ import io
 import os
 import re
 
-BACKEND_BASE = os.getenv("FASTAPI_URL", "http://127.0.0.1:8001").rstrip("/")
+def _backend_base_url(value):
+    """Accept either the backend origin or a mistakenly configured API route."""
+    base = (value or "http://127.0.0.1:8001").strip().rstrip("/")
+    for suffix in ("/api/v1/quantum-chat", "/api/v1/transcribe", "/api/v1"):
+        if base.lower().endswith(suffix):
+            base = base[:-len(suffix)].rstrip("/")
+            break
+    return base
+
+
+BACKEND_BASE = _backend_base_url(os.getenv("FASTAPI_URL", "http://127.0.0.1:8001"))
 FASTAPI_CHAT_URL = f"{BACKEND_BASE}/api/v1/quantum-chat"
 FASTAPI_TRANSCRIBE_URL = f"{BACKEND_BASE}/api/v1/transcribe"
 

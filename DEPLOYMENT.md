@@ -28,7 +28,7 @@ PGVECTOR_CONNECTION_STRING="postgresql://user:password@host:5432/dbname"
 PGVECTOR_COLLECTION="quantum_spanish_docs"
 CHROMA_PERSIST_DIRECTORY="./chroma_db"
 ENABLE_WEB_INGESTION="true"
-FASTAPI_URL="https://your-backend-render-url.onrender.com/api/v1/quantum-chat"
+FASTAPI_URL="https://your-backend-render-url.onrender.com"
 ```
 
 ## 2) Neon setup
@@ -60,7 +60,7 @@ In Render, set environment variables manually for:
 
 1. Deploy the backend service first.
 2. Copy its public URL.
-3. Put that URL into `FASTAPI_URL` for the frontend service.
+3. Put the backend service root URL into `FASTAPI_URL` for the frontend service (for example, `https://your-backend.onrender.com`). Do not add `/api/v1/quantum-chat` or `/api/v1/transcribe`.
 4. Deploy the frontend service.
 
 ## 6) Important note
