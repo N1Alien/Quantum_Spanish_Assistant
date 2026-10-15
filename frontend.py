@@ -101,11 +101,18 @@ def send_user_message(user_text):
             if response.status_code == 200:
                 bot_response = response.json().get("response", "").strip()
                 if bot_response:
+                    st.session_state.last_chat_error = None
                     st.session_state.chat_history_display.append({"role": "assistant", "content": bot_response})
+                else:
+                    st.session_state.last_chat_error = "The AI returned an empty response. Please try again."
             else:
-                st.error(f"❌ Backend error: {response.text}")
+                try:
+                    detail = response.json().get("detail", "")
+                except ValueError:
+                    detail = ""
+                st.session_state.last_chat_error = detail or f"Chat request failed (HTTP {response.status_code})."
         except Exception as api_err:
-            st.error(f"❌ Connection failed: {str(api_err)}")
+            st.session_state.last_chat_error = f"Connection failed: {api_err}"
 
     if bot_response and "❌" not in bot_response:
         spanish_block = ""
@@ -127,6 +134,8 @@ if "play_audio" not in st.session_state:
     st.session_state.play_audio = False
 if "last_audio_signature" not in st.session_state:
     st.session_state.last_audio_signature = None
+if "last_chat_error" not in st.session_state:
+    st.session_state.last_chat_error = None
 
 if st.button("🔄 Reset conversation"):
     if os.path.exists("/tmp/web_response.mp3"):
@@ -167,6 +176,9 @@ if audio_file is not None:
 
 latest_assistant = st.session_state.chat_history_display[-1]["content"] if st.session_state.chat_history_display and st.session_state.chat_history_display[-1]["role"] == "assistant" else ""
 st.session_state.current_prompts = build_dynamic_prompts(latest_assistant)
+
+if st.session_state.last_chat_error:
+    st.error(f"❌ Teacher could not reply: {st.session_state.last_chat_error}")
 
 with st.sidebar:
     st.header("💡 Suggested responses")
