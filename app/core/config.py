@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
 
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
 
     DATABASE_URL: str = "postgresql://admin:secret@localhost:5432/quantum_spanish_db"
 

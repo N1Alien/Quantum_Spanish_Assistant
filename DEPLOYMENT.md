@@ -21,7 +21,7 @@ LLM_PROVIDER="groq"
 LLM_MODEL="llama3"
 OLLAMA_BASE_URL="http://localhost:11434"
 GROQ_API_KEY="your_groq_api_key"
-GROQ_MODEL="llama-3.1-8b-instant"
+GROQ_MODEL="openai/gpt-oss-20b"
 DATABASE_URL="postgresql://user:password@host:5432/dbname"
 VECTOR_DB_PROVIDER="pgvector"
 PGVECTOR_CONNECTION_STRING="postgresql://user:password@host:5432/dbname"
@@ -44,7 +44,7 @@ FASTAPI_URL="https://your-backend-render-url.onrender.com"
 1. Create a Groq account.
 2. Generate an API key.
 3. Save it as `GROQ_API_KEY`.
-4. Model suggestion: `llama-3.1-8b-instant`
+4. Model: `openai/gpt-oss-20b`
 
 ## 4) Render setup
 

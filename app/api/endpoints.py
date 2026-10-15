@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Dict
 from groq import Groq, RateLimitError
+import logging
 from app.core.config import settings
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class SpanishChatRequest(BaseModel):
     message: str = Field(..., description="Ostatnia wiadomość użytkownika")
@@ -54,4 +56,5 @@ def process_quantum_chat(payload: SpanishChatRequest):
     except HTTPException:
         raise
     except Exception as e:
+        logger.exception("Groq chat request failed (model=%s)", settings.GROQ_MODEL)
         raise HTTPException(status_code=502, detail="The AI chat request failed. Please try again shortly.") from e
